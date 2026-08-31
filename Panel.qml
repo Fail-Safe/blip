@@ -52,8 +52,10 @@ Panel {
   property bool loading: false
   property string note: ""           // transient status line (send result, errors)
   property int cursor: -1            // keyboard row selection in list view
+  property bool pinToBottom: false   // scroll to the newest bubble once layout settles
 
   readonly property bool inThread: active !== null
+  readonly property bool activeIsGroup: inThread && /^[0-9a-f]{32}$/i.test(String(active.chat || ""))
 
   /**
    * Group chats carry an opaque chat_identifier (32 hex, chat.style=43), but
@@ -63,8 +65,12 @@ Panel {
    */
   function isSendable(t) {
     if (!t) return false
-    var h = String(t.handle || "")
-    return /^\+?[0-9]{5,}$/.test(h) || h.indexOf("@") > 0
+    // Test the CHAT id, never the handle: a group's handle is whichever member
+    // spoke last, and sending to it would DM that one person while the panel
+    // shows the group.
+    var c = String(t.chat || "")
+    if (/^[0-9a-f]{32}$/i.test(c)) return false
+    return /^\+?[0-9]{5,}$/.test(c) || c.indexOf("@") > 0
   }
 
   function open() {
@@ -91,6 +97,7 @@ Panel {
     active = null
     bubbles = []
     note = ""
+    pinToBottom = false
     Qt.callLater(function() { flick.contentY = 0; keyCatcher.forceActiveFocus() })
   }
 
@@ -110,14 +117,15 @@ Panel {
     var text = composeField.text
     if (!root.inThread || text.trim() === "") return
     if (!isSendable(root.active)) {
-      note = "Group threads are read-only in v0.1 — send from your phone"
+      note = "Group threads are read-only for now — send from your phone"
       return
     }
     note = "sending…"
+    // "--" so a message that starts with "-" is text, not a flag (argparse honours it).
     sendProc.command = [
       root.home + "/bin/imsg-send",
-      "--to", String(root.active.handle),
-      "--yes", text
+      "--to", String(root.active.chat),
+      "--yes", "--", text
     ]
     sendProc.running = true
   }
@@ -139,7 +147,7 @@ Panel {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
             root.bubbles = Array.isArray(d.bubbles) ? d.bubbles : []
-            Qt.callLater(function() { flick.contentY = Math.max(0, flick.contentHeight - flick.height) })
+            root.pinToBottom = true
           } else {
             root.bubbles = []
             root.note = String(d.error || "could not load this thread")
@@ -248,6 +256,12 @@ Panel {
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          // Layout height lands a frame or two after `bubbles` changes; a
+          // one-shot callLater under-scrolled. Follow the height instead.
+          onContentHeightChanged: if (root.pinToBottom && root.inThread) {
+            contentY = Math.max(0, contentHeight - height)
+            if (!root.loading) root.pinToBottom = false
+          }
 
           ColumnLayout {
             id: content
@@ -422,6 +436,19 @@ Panel {
                   bottomPadding: Style.space(4)
                 }
 
+                // in a group, iMessage names the sender above each run of theirs
+                Text {
+                  Layout.alignment: Qt.AlignLeft
+                  Layout.leftMargin: Style.space(10)
+                  Layout.topMargin: Style.space(6)
+                  visible: root.activeIsGroup && !bubbleRow.mine && modelData.groupStart === true
+                  text: String(modelData.name || "")
+                  textFormat: Text.PlainText
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
                 // the bubble itself. Width comes from the laid-out text
                 // (contentWidth), never the unwrapped implicitWidth — a long
                 // line would otherwise overshoot the cap and break alignment.
@@ -503,7 +530,7 @@ Panel {
             id: composeField
             Layout.fillWidth: true
             enabled: root.online && root.isSendable(root.active)
-            placeholderText: root.isSendable(root.active) ? "iMessage" : "Group threads are read-only in v0.1"
+            placeholderText: root.isSendable(root.active) ? "iMessage" : "Group threads are read-only for now"
             foreground: root.foreground
             accent: root.mineFill
             font.family: root.fontFamily

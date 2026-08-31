@@ -9,6 +9,7 @@ import {
   loadThread,
   localToday,
   minutesBetween,
+  selectThread,
 } from "./thread";
 
 function msg(over: Partial<ImsgMessage> = {}): ImsgMessage {
@@ -290,5 +291,37 @@ describe("localToday", () => {
 
   test("zero-pads month and day", () => {
     expect(localToday(new Date(2026, 0, 5))).toBe("2026-01-05");
+  });
+});
+
+describe("selectThread", () => {
+  const guid = "ce5a593a78af408282d61461ade89135";
+  test("a group filters a mixed recent window down to its own chat, oldest-first", () => {
+    const out = selectThread(
+      [
+        msg({ chat: guid, ts: "2026-08-30 12:05:00", text: "late" }),
+        msg({ chat: "+15550000000", ts: "2026-08-30 12:04:00", text: "other chat" }),
+        msg({ chat: guid, ts: "2026-08-30 12:00:00", text: "early" }),
+      ],
+      guid, true, 80,
+    );
+    expect(out.map((m) => m.text)).toEqual(["early", "late"]);
+  });
+
+  test("keeps only the newest `limit` messages", () => {
+    const raw = Array.from({ length: 5 }, (_, i) => msg({ chat: guid, ts: `2026-08-30 12:0${i}:00`, text: `m${i}` }));
+    expect(selectThread(raw, guid, true, 2).map((m) => m.text)).toEqual(["m3", "m4"]);
+  });
+
+  test("a DM window passes through untouched apart from ordering", () => {
+    const out = selectThread([msg({ ts: "2026-08-30 12:01:00" }), msg({ ts: "2026-08-30 12:00:00" })], "+15551234567", false, 80);
+    expect(out[0]!.ts).toBe("2026-08-30 12:00:00");
+  });
+
+  test("loadThread asks recent, not thread, for a group", () => {
+    let seen: string[] = [];
+    const runner = ((_: string, args: string[]) => { seen = args; return { status: 0, stdout: "[]", stderr: "" }; }) as never;
+    loadThread(guid, 80, "2026-08-30", runner);
+    expect(seen[1]).toBe("recent");
   });
 });

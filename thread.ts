@@ -11,7 +11,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import type { ImsgMessage } from "./collector";
+import { chatKey, dedupeSelfEcho, isGroupChat, type ImsgMessage } from "./collector";
+export { dedupeSelfEcho };
 
 const HOME = process.env.HOME ?? "/home/pi";
 
@@ -126,36 +127,27 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
   return out;
 }
 
-/**
- * The self-thread returns every message twice — once as from_me=true (empty
- * text) and once as from_me=false carrying the text. Rendering both would show
- * every sent message as if someone else had said it.
- */
-export function dedupeSelfEcho(msgs: ImsgMessage[]): ImsgMessage[] {
-  // Timestamps of the empty from_me=true rows. Their text-bearing twin at the
-  // same ts was really sent by me, so it must render on the right, not the left.
-  const sentAt = new Set(msgs.filter((m) => m.from_me && m.text === "").map((m) => m.ts));
-  const out: ImsgMessage[] = [];
-  for (const m of msgs) {
-    if (m.text === "") continue;                       // the empty from_me twin
-    const idx = out.findIndex((o) => o.ts === m.ts && o.text === m.text);
-    if (idx >= 0) {
-      // imsg decodes attributedBody, so both twins usually carry the text.
-      // Whichever order they arrive in, the pair was sent by me.
-      if (m.from_me) out[idx] = { ...out[idx]!, from_me: true };
-      continue;
-    }
-    out.push(sentAt.has(m.ts) && !m.from_me ? { ...m, from_me: true } : m);
-  }
-  return out;
-}
-
 /** Local calendar date — toISOString() is UTC and flips "Today" at 8pm EDT. */
 export function localToday(now = new Date()): string {
   const y = now.getFullYear();
   const mo = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${y}-${mo}-${d}`;
+}
+
+/** How far back to scan `recent` for a group's messages. */
+export const GROUP_SCAN_WINDOW = 1500;
+
+/**
+ * Normalise a fetched window into this thread's chronological messages.
+ * `recent` is newest-first and mixed across chats; `thread` is already
+ * oldest-first and single-chat. Both end up oldest-first, last `limit` only.
+ */
+export function selectThread(raw: ImsgMessage[], chat: string, group: boolean, limit: number): ImsgMessage[] {
+  let msgs = group ? raw.filter((m) => chatKey(m) === chat) : raw;
+  msgs = [...msgs].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  msgs = dedupeSelfEcho(msgs);
+  return msgs.length > limit ? msgs.slice(msgs.length - limit) : msgs;
 }
 
 // ---------------------------------------------------------------- transport
@@ -166,7 +158,13 @@ export function loadThread(
   today: string,
   runner = spawnSync,
 ): ThreadOutput {
-  const res = runner(`${HOME}/bin/imsg`, ["--json", "thread", chat, String(limit)], {
+  // `imsg thread` matches by HANDLE substring, so a group's 32-hex chat id
+  // never hits. For groups, pull a wide recent window and filter by chat.
+  const group = isGroupChat(chat);
+  const args = group
+    ? ["--json", "recent", String(GROUP_SCAN_WINDOW)]
+    : ["--json", "thread", chat, String(limit)];
+  const res = runner(`${HOME}/bin/imsg`, args, {
     encoding: "utf8",
     timeout: 15000,
   });
@@ -181,7 +179,7 @@ export function loadThread(
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    const msgs = dedupeSelfEcho(parsed as ImsgMessage[]);
+    const msgs = selectThread(parsed as ImsgMessage[], chat, group, limit);
     return { ok: true, online: true, error: "", bubbles: decorate(msgs, today) };
   } catch (e) {
     return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, bubbles: [] };

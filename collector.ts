@@ -28,8 +28,12 @@ export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
 /** Handles whose inbound messages are allowed to raise a desktop toast. */
 export const ALLOWLIST_PATH = `${HOME}/.config/blip/allowlist.json`;
 
-/** Shallow poll window — enough to catch new traffic without moving 100KB every tick. */
-export const POLL_WINDOW = 60;
+/**
+ * Shallow poll window. Unread is counted inside this window, so it must be
+ * wide enough that a burst of bank alerts cannot push a real unread out of it
+ * and silently drop the badge. 150 msgs ≈ 40KB per tick.
+ */
+export const POLL_WINDOW = 150;
 /** Deep window, fetched when the panel opens and needs a real thread list. */
 export const DEEP_WINDOW = 500;
 
@@ -137,6 +141,32 @@ export function displayName(msgs: ImsgMessage[]): string {
   return chatKey(msgs[0]);
 }
 
+/** Group chat ids are 32 hex chars (chat.style=43); DMs are a phone or email. */
+export function isGroupChat(chat: string): boolean {
+  return /^[0-9a-f]{32}$/i.test(chat);
+}
+
+/**
+ * The self-thread logs every send twice: a from_me=true row and a from_me=false
+ * twin carrying the same ts+text. Left alone, every message Fred sends himself
+ * counts as unread and re-lights the dot. Collapse the pair and attribute it
+ * to me. Shared with thread.ts so the list and the bubbles agree.
+ */
+export function dedupeSelfEcho(msgs: ImsgMessage[]): ImsgMessage[] {
+  const sentAt = new Set(msgs.filter((m) => m.from_me && m.text === "").map((m) => m.ts));
+  const out: ImsgMessage[] = [];
+  for (const m of msgs) {
+    if (m.text === "") continue;
+    const idx = out.findIndex((o) => o.ts === m.ts && o.text === m.text && chatKey(o) === chatKey(m));
+    if (idx >= 0) {
+      if (m.from_me) out[idx] = { ...out[idx]!, from_me: true };
+      continue;
+    }
+    out.push(sentAt.has(m.ts) && !m.from_me ? { ...m, from_me: true } : m);
+  }
+  return out;
+}
+
 /**
  * imsg returns chat:null for some rows (no chat join — typically one-off SMS
  * from short codes). Fall back to the handle so the row still has an identity
@@ -178,7 +208,9 @@ export function buildThreads(
       : 0;
     threads.push({
       chat,
-      name: displayName(sorted),
+      // Groups have no display_name in imsg's output; label them so the list
+      // does not pass one participant off as the whole conversation.
+      name: isGroupChat(chat) ? displayName(sorted) + " +group" : displayName(sorted),
       handle: String(last.handle || chat),
       service: last.service,
       last_ts: last.ts,
@@ -195,7 +227,7 @@ export function buildThreads(
 
 /** Stable key for one message, used to suppress repeat toasts. */
 export function toastKey(m: ImsgMessage): string {
-  return `${m.ts}|${m.chat}|${m.text}`;
+  return `${m.ts}|${chatKey(m)}|${m.text}`;
 }
 
 /**
@@ -221,11 +253,11 @@ export function selectToasts(
   for (const m of msgs) {
     if (m.from_me) continue;
     if (m.ts <= watermark) continue;
-    if (!allowed.has(m.chat) && !allowed.has(m.handle)) continue;
+    if (!allowed.has(chatKey(m)) && !allowed.has(m.handle)) continue;
     const key = toastKey(m);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ chat: m.chat, name: m.name ?? m.handle, text: m.text, ts: m.ts });
+    out.push({ chat: chatKey(m), name: m.name ?? m.handle, text: m.text, ts: m.ts });
   }
   return out;
 }
@@ -294,8 +326,9 @@ export function collect(deep: boolean, markRead = false, readChat = ""): BlipOut
   // Opening one conversation clears only that thread's dot.
   const readMarks = { ...state.readMarks };
   if (readChat) readMarks[readChat] = highest;
-  const threads = buildThreads(fetched.msgs, readMark, readMarks);
-  const toast = selectToasts(fetched.msgs, state.watermark, loadAllowlist(), state.toasted);
+  const msgs = dedupeSelfEcho(fetched.msgs);
+  const threads = buildThreads(msgs, readMark, readMarks);
+  const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const unread = threads.reduce((n, t) => n + t.unread, 0);
 
   // Both marks advance only on a good fetch, so an outage cannot silently
@@ -306,7 +339,7 @@ export function collect(deep: boolean, markRead = false, readChat = ""): BlipOut
     // whole 60-message window as unread the moment the plugin is installed.
     readMark: state.readMark === "" ? highest : readMark,
     readMarks,
-    toasted: [...state.toasted, ...toast.map((t) => `${t.ts}|${t.chat}|${t.text}`)],
+    toasted: [...state.toasted, ...toast.map((t) => `${t.ts}|${t.chat}|${t.text}`)],  // == toastKey
   });
 
   return { ok: true, online: true, error: "", ts: now, unread, threads, toast };

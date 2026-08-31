@@ -132,7 +132,9 @@ BarWidget {
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.refresh(false, false)
+    // While the panel is open keep the wide window, or the list would shrink
+    // from 40 threads to 14 on the next tick.
+    onTriggered: root.refresh(panelLoader.item && panelLoader.item.opened === true, false)
   }
 
   // ------------------------------------------------------------ toasts
@@ -161,6 +163,7 @@ BarWidget {
       "--app-name=Blip",
       "--icon=mail-message-new",
       "--expire-time=8000",
+      "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
       body
     ]

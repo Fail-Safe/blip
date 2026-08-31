@@ -63,7 +63,7 @@ and `show` collides with `qs ipc show`).
 
 ## Known limits (v0.1)
 
-- **Group threads are read-only.** They carry an opaque `chat_identifier`
+- **Group threads are read-only** (history works, sender names shown). They carry an opaque `chat_identifier`
   (`chat.style=43`), but AppleScript needs the full GUID (`any;+;<id>`), which
   `imsg --json` does not expose. Rather than risk delivering to the wrong
   thread, sending is restricted to DMs. Reading groups works fine.

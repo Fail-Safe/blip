@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import {
   buildThreads,
+  dedupeSelfEcho,
+  isGroupChat,
   displayName,
   fetchMessages,
   loadAllowlist,
@@ -85,7 +87,7 @@ describe("buildThreads", () => {
     const guid = "053856bb0d9a40e392db59eace1c56d1";
     const threads = buildThreads([msg({ chat: guid, name: "Craig Chapman" })], "");
     expect(threads[0]!.chat).toBe(guid);
-    expect(threads[0]!.name).toBe("Craig Chapman");
+    expect(threads[0]!.name).toBe("Craig Chapman +group");
   });
 
   test("the same person across a DM and a group stays two threads", () => {
@@ -138,6 +140,38 @@ describe("buildThreads", () => {
   });
 });
 
+describe("isGroupChat", () => {
+  test("32 hex = group", () => expect(isGroupChat("053856bb0d9a40e392db59eace1c56d1")).toBe(true));
+  test("phone = DM", () => expect(isGroupChat("+14089216687")).toBe(false));
+  test("email = DM", () => expect(isGroupChat("someone@icloud.com")).toBe(false));
+});
+
+describe("self-echo in the thread list", () => {
+  test("a message Fred sends himself does not count as unread", () => {
+    // Without this every panel send to the self-thread re-lit the dot.
+    const msgs = dedupeSelfEcho([
+      msg({ chat: "+14049538305", handle: "+14049538305", ts: "2026-08-30 11:00:00", from_me: true, text: "note" }),
+      msg({ chat: "+14049538305", handle: "+14049538305", ts: "2026-08-30 11:00:00", from_me: false, text: "note" }),
+    ]);
+    const threads = buildThreads(msgs, "2026-08-30 10:00:00");
+    expect(threads[0]!.unread).toBe(0);
+    expect(threads[0]!.last_from_me).toBe(true);
+  });
+
+  test("the same text in two different chats at one ts is two messages", () => {
+    const msgs = dedupeSelfEcho([
+      msg({ chat: "A", handle: "A", ts: "2026-08-30 11:00:00", text: "ok" }),
+      msg({ chat: "B", handle: "B", ts: "2026-08-30 11:00:00", text: "ok" }),
+    ]);
+    expect(msgs).toHaveLength(2);
+  });
+
+  test("group threads are labelled so one member is not passed off as the group", () => {
+    const threads = buildThreads([msg({ chat: "053856bb0d9a40e392db59eace1c56d1", name: "Craig Chapman" })], "");
+    expect(threads[0]!.name).toBe("Craig Chapman +group");
+  });
+});
+
 describe("displayName", () => {
   test("prefers the first resolved contact name", () => {
     expect(displayName([msg({ name: null }), msg({ name: "Crystal Nix" })])).toBe("Crystal Nix");
@@ -151,6 +185,16 @@ describe("displayName", () => {
 
 describe("selectToasts", () => {
   const allow = ["+19546961726"];
+
+  test("a null-chat toast carries the handle, never the string null", () => {
+    const out = selectToasts(
+      [msg({ chat: null as unknown as string, handle: "+19546961726", ts: "2026-08-30 11:00:00" })],
+      "2026-08-30 10:00:00",
+      allow,
+      [],
+    );
+    expect(out[0]!.chat).toBe("+19546961726");
+  });
 
   test("toasts an allowlisted inbound message", () => {
     const out = selectToasts(
