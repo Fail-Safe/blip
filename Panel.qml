@@ -59,18 +59,16 @@ Panel {
   readonly property bool activeIsGroup: inThread && /^[0-9a-f]{32}$/i.test(String(active.chat || ""))
 
   /**
-   * Group chats carry an opaque chat_identifier (32 hex, chat.style=43), but
-   * AppleScript needs the full GUID ("any;+;<id>") which `imsg --json` does not
-   * expose. Rather than risk delivering a message to the wrong thread, v0.1
-   * sends to DMs only and marks groups read-only.
+   * DMs send --to the chat id (a phone/email). Groups send --chat-id with the
+   * full AppleScript GUID ("any;+;<id>") that `imsg groups` supplies; a group
+   * whose GUID is not cached yet stays read-only rather than guess. Never the
+   * handle: a group's handle is whichever member spoke last, and sending to it
+   * would DM that one person while the panel shows the group.
    */
   function isSendable(t) {
     if (!t) return false
-    // Test the CHAT id, never the handle: a group's handle is whichever member
-    // spoke last, and sending to it would DM that one person while the panel
-    // shows the group.
     var c = String(t.chat || "")
-    if (/^[0-9a-f]{32}$/i.test(c)) return false
+    if (/^[0-9a-f]{32}$/i.test(c)) return /^[A-Za-z]+;[+-];[0-9a-f]{32}$/i.test(String(t.guid || ""))
     return /^\+?[0-9]{5,}$/.test(c) || c.indexOf("@") > 0
   }
 
@@ -249,7 +247,9 @@ Panel {
           Layout.fillWidth: true
           title: root.inThread ? String(root.active.name || root.active.chat) : "Blip"
           meta: root.inThread
-            ? (root.isSendable(root.active) ? String(root.active.handle) : "group · read-only")
+            ? (root.activeIsGroup
+                ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
+                : String(root.active.handle))
             : (!root.online
                 ? "fnix unreachable — bridge offline"
                 : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
@@ -562,7 +562,7 @@ Panel {
             id: composeField
             Layout.fillWidth: true
             enabled: root.online && root.isSendable(root.active)
-            placeholderText: root.isSendable(root.active) ? "iMessage" : "Group threads are read-only for now"
+            placeholderText: root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
             foreground: root.foreground
             accent: root.mineFill
             font.family: root.fontFamily

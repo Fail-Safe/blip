@@ -169,8 +169,18 @@ describe("self-echo in the thread list", () => {
 
   test("a named group uses its display_name", () => {
     const guid = "ce5a593a78af408282d61461ade89135";
-    const threads = buildThreads([msg({ chat: guid, name: "Thomas Dodd" })], "", {}, { [guid]: { name: "LMT", participants: ["+1"] } });
+    const threads = buildThreads([msg({ chat: guid, name: "Thomas Dodd" })], "", {}, { [guid]: { name: "LMT", guid: "any;+;" + guid, participants: ["+1"] } });
     expect(threads[0]!.name).toBe("LMT");
+    expect(threads[0]!.guid).toBe("any;+;" + guid);
+  });
+
+  test("a group with no cached metadata has an empty guid and stays unsendable", () => {
+    const threads = buildThreads([msg({ chat: "053856bb0d9a40e392db59eace1c56d1" })], "");
+    expect(threads[0]!.guid).toBe("");
+  });
+
+  test("a DM never carries a guid", () => {
+    expect(buildThreads([msg()], "")[0]!.guid).toBe("");
   });
 
   test("an unnamed group lists its members, resolving names from the window", () => {
@@ -178,7 +188,7 @@ describe("self-echo in the thread list", () => {
     const threads = buildThreads(
       [msg({ chat: guid, handle: "+16164385399", name: "Craig Chapman" })],
       "", {},
-      { [guid]: { name: "", participants: ["+16164385399", "+19543953540"] } },
+      { [guid]: { name: "", guid: "any;+;" + guid, participants: ["+16164385399", "+19543953540"] } },
     );
     expect(threads[0]!.name).toBe("Craig Chapman, +19543953540");
   });
@@ -412,8 +422,8 @@ describe("fetchGroups", () => {
   const fake = (r: { status: number; stdout?: string }) =>
     (() => ({ status: r.status, stdout: r.stdout ?? "", stderr: "" })) as never;
   test("parses sqlite -json rows into a map", () => {
-    const g = fetchGroups(fake({ status: 0, stdout: JSON.stringify([{ chat: "abc", name: "LMT", participants: "+1,+2" }]) }));
-    expect(g).toEqual({ abc: { name: "LMT", participants: ["+1", "+2"] } });
+    const g = fetchGroups(fake({ status: 0, stdout: JSON.stringify([{ chat: "abc", guid: "any;+;abc", name: "LMT", participants: "+1,+2" }]) }));
+    expect(g).toEqual({ abc: { name: "LMT", guid: "any;+;abc", participants: ["+1", "+2"] } });
   });
   test("a failed lookup returns null so the cached copy is kept", () => {
     expect(fetchGroups(fake({ status: 69 }))).toBeNull();

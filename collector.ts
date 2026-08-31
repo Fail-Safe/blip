@@ -49,6 +49,9 @@ export interface ImsgMessage {
 
 export interface Thread {
   chat: string;
+  /** Full AppleScript chat GUID for groups (""), empty for DMs. Sending to a
+   *  group means `imsg-send --chat-id <guid>`; never the bare id. */
+  guid: string;
   name: string;
   handle: string;
   service: string;
@@ -75,7 +78,8 @@ export interface Toast {
  *   readMark  — highest ts Fred has actually *looked at*. Drives the badge.
  *               Only moves on --mark-read (panel open, or middle-click).
  */
-export interface GroupInfo { name: string; participants: string[] }
+/** guid is what AppleScript's `chat id` wants ("any;+;<id>"); chat is the bare id. */
+export interface GroupInfo { name: string; guid: string; participants: string[] }
 
 export interface BlipState {
   watermark: string;
@@ -228,6 +232,7 @@ export function buildThreads(
       : 0;
     threads.push({
       chat,
+      guid: isGroupChat(chat) ? groups[chat]?.guid ?? "" : "",
       name: isGroupChat(chat) ? groupName(chat, groups[chat], byHandle) : displayName(sorted),
       handle: String(last.handle || chat),
       service: last.service,
@@ -330,6 +335,7 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
       if (!r || typeof r.chat !== "string") continue;
       out[r.chat] = {
         name: typeof r.name === "string" ? r.name : "",
+        guid: typeof r.guid === "string" ? r.guid : "",
         participants: typeof r.participants === "string" ? r.participants.split(",").filter(Boolean) : [],
       };
     }
