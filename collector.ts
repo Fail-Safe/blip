@@ -128,7 +128,17 @@ export function loadAllowlist(path = ALLOWLIST_PATH): string[] {
 /** Display name for a chat, falling back to the raw handle for unknown numbers. */
 export function displayName(msgs: ImsgMessage[]): string {
   for (const m of msgs) if (m.name) return m.name;
-  return msgs[0]?.chat ?? "";
+  return chatKey(msgs[0]);
+}
+
+/**
+ * imsg returns chat:null for some rows (no chat join — typically one-off SMS
+ * from short codes). Fall back to the handle so the row still has an identity
+ * and never renders as the string "null".
+ */
+export function chatKey(m: ImsgMessage | undefined): string {
+  if (!m) return "";
+  return String(m.chat || m.handle || "");
 }
 
 /**
@@ -141,9 +151,10 @@ export function displayName(msgs: ImsgMessage[]): string {
 export function buildThreads(msgs: ImsgMessage[], watermark: string): Thread[] {
   const byChat = new Map<string, ImsgMessage[]>();
   for (const m of msgs) {
-    const list = byChat.get(m.chat);
+    const key = chatKey(m);
+    const list = byChat.get(key);
     if (list) list.push(m);
-    else byChat.set(m.chat, [m]);
+    else byChat.set(key, [m]);
   }
 
   const threads: Thread[] = [];
@@ -156,7 +167,7 @@ export function buildThreads(msgs: ImsgMessage[], watermark: string): Thread[] {
     threads.push({
       chat,
       name: displayName(sorted),
-      handle: last.handle,
+      handle: String(last.handle || chat),
       service: last.service,
       last_ts: last.ts,
       last_text: last.text,

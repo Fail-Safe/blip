@@ -6,13 +6,16 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Blip panel — threads, history, compose.
+// Blip panel — threads, then an iMessage-style conversation with a compose box.
 //
-// Two views in one column (a bar panel is too narrow for a real two-pane):
 //   list         → every thread, newest first, unread marked
-//   conversation → one thread's history + a compose box, Esc goes back
+//   conversation → bubbles: mine blue on the right, theirs grey on the left,
+//                  grouped by sender with one timestamp per run, day dividers,
+//                  compose box pinned at the bottom. Esc goes back.
 //
 // Reads its thread list from the host widget so there is exactly one poller.
+// Bubble decoration (grouping, day labels, times) is computed in thread.ts,
+// where it is unit-tested; this file only renders.
 Panel {
   id: root
   moduleName: "nixfred.blip"
@@ -28,7 +31,16 @@ Panel {
   readonly property color cyan: "#5fd7ff"
   readonly property color okColor: "#7fbf7f"
 
+  // iMessage's own palette. Fixed on purpose — the bubbles are the whole
+  // point of looking like iMessage, so they do not follow the Omarchy theme.
+  readonly property color mineFill: "#0a84ff"
+  readonly property color mineText: "#ffffff"
+  readonly property color theirsFill: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
+  readonly property color theirsText: foreground
+
   readonly property string home: Quickshell.env("HOME")
+  readonly property string threadScript:
+    decodeURIComponent(Qt.resolvedUrl("thread.ts").toString().replace(/^file:\/\//, ""))
 
   readonly property var threads: hostWidget ? hostWidget.threads : []
   readonly property bool online: hostWidget ? hostWidget.online : false
@@ -36,7 +48,7 @@ Panel {
 
   // ---- view state
   property var active: null          // selected thread object, null = list view
-  property var messages: []          // [{ts,from_me,name,text}] for `active`
+  property var bubbles: []           // decorated messages for `active` (see thread.ts)
   property bool loading: false
   property string note: ""           // transient status line (send result, errors)
   property int cursor: -1            // keyboard row selection in list view
@@ -57,7 +69,7 @@ Panel {
 
   function open() {
     active = null
-    messages = []
+    bubbles = []
     note = ""
     cursor = -1
     // Deep fetch for a real thread list, and clear the badge — opening the
@@ -76,18 +88,20 @@ Panel {
 
   function back() {
     active = null
-    messages = []
+    bubbles = []
     note = ""
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function openThread(t) {
     if (!t) return
     active = t
-    messages = []
+    bubbles = []
     note = ""
     loading = true
-    threadProc.command = [root.home + "/bin/imsg", "--json", "thread", String(t.chat), "60"]
+    threadProc.command = ["bun", root.threadScript, String(t.chat), "80"]
     threadProc.running = true
+    Qt.callLater(function() { composeField.forceActiveFocus() })
   }
 
   function send() {
@@ -120,19 +134,23 @@ Panel {
       onStreamFinished: {
         root.loading = false
         try {
-          var v = JSON.parse(text.trim())
-          root.messages = Array.isArray(v) ? v : []
+          var d = JSON.parse(text.trim())
+          if (d.ok === true) {
+            root.bubbles = Array.isArray(d.bubbles) ? d.bubbles : []
+            Qt.callLater(function() { flick.contentY = Math.max(0, flick.contentHeight - flick.height) })
+          } else {
+            root.bubbles = []
+            root.note = String(d.error || "could not load this thread")
+          }
         } catch (e) {
-          root.messages = []
+          root.bubbles = []
           root.note = "could not load this thread"
         }
       }
     }
     onExited: function(code, status) {
       root.loading = false
-      // 69 = the imsg shim's documented "fnix unreachable" code.
-      if (code === 69) root.note = "fnix unreachable — bridge offline"
-      else if (code !== 0) root.note = "imsg failed (exit " + code + ")"
+      if (code !== 0) root.note = "thread loader failed (exit " + code + ")"
     }
   }
 
@@ -140,7 +158,7 @@ Panel {
     id: sendProc
     onExited: function(code, status) {
       if (code === 0) {
-        root.note = "sent"
+        root.note = ""
         composeField.text = ""
         // Give Messages.app a beat to write the row, then reload the thread.
         reloadTimer.restart()
@@ -149,12 +167,16 @@ Panel {
       } else {
         root.note = "send failed (exit " + code + ")"
       }
+      composeField.forceActiveFocus()
     }
   }
   Timer {
     id: reloadTimer
     interval: 1500
-    onTriggered: if (root.inThread) root.openThread(root.active)
+    onTriggered: if (root.inThread) {
+      threadProc.command = ["bun", root.threadScript, String(root.active.chat), "80"]
+      threadProc.running = true
+    }
   }
 
   // ------------------------------------------------------------ panel
@@ -165,12 +187,15 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: root.inThread ? composeField : keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(420))
-    contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(620))
+    contentWidth: panel.fittedContentWidth(Style.space(440))
+    contentHeight: panel.fittedContentHeight(root.inThread ? Style.space(640) : content.implicitHeight, Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      // PanelKeyCatcher runs BEFORE any focused descendant (Keys.BeforeItem).
+      // Without this it swallows every letter typed into the compose box.
+      blocked: composeField.activeFocus
       onCloseRequested: root.inThread ? root.back() : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
@@ -188,256 +213,333 @@ Panel {
         }
       }
 
-      Flickable {
+      ColumnLayout {
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: content.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        spacing: Style.space(8)
 
-        ColumnLayout {
-          id: content
-          width: parent.width
-          spacing: Style.space(10)
+        // ---------------------------------------------------------- header
+        PanelHero {
+          Layout.fillWidth: true
+          title: root.inThread ? String(root.active.name || root.active.chat) : "Blip"
+          meta: root.inThread
+            ? (root.isSendable(root.active) ? String(root.active.handle) : "group · read-only")
+            : (!root.online
+                ? "fnix unreachable — bridge offline"
+                : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
+          detail: root.inThread
+            ? (root.loading ? "loading…" : "Esc = back")
+            : "iMessage via fnix"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
 
-          // ---------------------------------------------------------- hero
-          PanelHero {
-            Layout.fillWidth: true
-            title: root.inThread ? String(root.active.name || root.active.chat) : "Blip"
-            meta: root.inThread
-              ? (root.isSendable(root.active) ? String(root.active.handle) : "group · read-only")
-              : (!root.online
-                  ? "fnix unreachable — bridge offline"
-                  : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
-            detail: root.inThread
-              ? (root.loading ? "loading…" : root.messages.length + " recent messages")
-              : "iMessage via fnix"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-          }
+        PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
 
-          PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
+        // ---------------------------------------------------- scroll body
+        Flickable {
+          id: flick
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          contentWidth: width
+          contentHeight: content.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentHeight > height
+          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-          // ---------------------------------------------------- OFFLINE
-          Text {
-            Layout.fillWidth: true
-            visible: !root.online
-            text: "fnix is not reachable, so there is no iMessage bridge right now. "
-                + "chat.db and the AppleScript send path both live on fnix — vic can only ever be a client. "
-                + "Wake fnix (or check Tailscale) and Blip reconnects on its own."
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
+          ColumnLayout {
+            id: content
+            width: parent.width
+            spacing: root.inThread ? Style.space(2) : Style.space(6)
 
-          // ------------------------------------------------- LIST VIEW
-          RowLayout {
-            Layout.fillWidth: true
-            visible: root.online && !root.inThread
-            PanelSectionHeader {
-              Layout.fillWidth: true
-              text: "THREADS"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
+            // ------------------------------------------------- OFFLINE
             Text {
-              text: root.threads.length === 0 ? "" : "click, 1–9, or j/k+Enter"
+              Layout.fillWidth: true
+              visible: !root.online
+              text: "fnix is not reachable, so there is no iMessage bridge right now. "
+                  + "chat.db and the AppleScript send path both live on fnix — vic can only ever be a client. "
+                  + "Wake fnix (or check Tailscale) and Blip reconnects on its own."
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
             }
-          }
 
-          Text {
-            Layout.fillWidth: true
-            visible: root.online && !root.inThread && root.threads.length === 0
-            text: "No threads in the current window yet — press r to refresh."
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
-
-          Repeater {
-            model: root.online && !root.inThread ? root.threads : []
-            delegate: Rectangle {
-              required property var modelData
-              required property int index
-
+            // ---------------------------------------------- LIST VIEW
+            RowLayout {
               Layout.fillWidth: true
-              implicitHeight: rowCol.implicitHeight + Style.space(10)
-              radius: Style.cornerRadius
-              color: rowHover.hovered || root.cursor === index
-                ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
-                : "transparent"
-
-              HoverHandler { id: rowHover }
-              TapHandler { onTapped: root.openThread(modelData) }
-
-              ColumnLayout {
-                id: rowCol
-                anchors.fill: parent
-                anchors.margins: Style.space(5)
-                spacing: Style.space(2)
-
-                RowLayout {
-                  Layout.fillWidth: true
-                  spacing: Style.space(6)
-
-                  Text {
-                    visible: modelData.unread > 0
-                    text: "●"
-                    color: root.cyan
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    Layout.fillWidth: true
-                    text: String(modelData.name || modelData.chat)
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    color: modelData.unread > 0 ? root.foreground : root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: modelData.unread > 0
-                  }
-                  Text {
-                    text: modelData.unread > 0 ? String(modelData.unread) : ""
-                    color: root.cyan
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                  }
-                  Text {
-                    text: root.fmtTime(modelData.last_ts)
-                    textFormat: Text.PlainText
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-
-                Text {
-                  Layout.fillWidth: true
-                  text: (modelData.last_from_me ? "you: " : "") + String(modelData.last_text || "")
-                  textFormat: Text.PlainText
-                  elide: Text.ElideRight
-                  maximumLineCount: 1
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-              }
-            }
-          }
-
-          // ---------------------------------------- CONVERSATION VIEW
-          Repeater {
-            model: root.inThread ? root.messages : []
-            delegate: ColumnLayout {
-              required property var modelData
-
-              Layout.fillWidth: true
-              spacing: 0
-
-              Text {
+              visible: root.online && !root.inThread
+              PanelSectionHeader {
                 Layout.fillWidth: true
-                text: (modelData.from_me ? "you" : String(modelData.name || root.active.name || "them"))
-                    + " · " + root.fmtTime(modelData.ts)
+                text: "MESSAGES"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+              Text {
+                text: root.threads.length === 0 ? "" : "click, 1–9, or j/k+Enter"
                 textFormat: Text.PlainText
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
               }
-              Text {
-                Layout.fillWidth: true
-                text: String(modelData.text || "")
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                color: modelData.from_me ? root.dim : root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                bottomPadding: Style.space(5)
-              }
-            }
-          }
-
-          Text {
-            Layout.fillWidth: true
-            visible: root.inThread && !root.loading && root.messages.length === 0
-            text: "No messages loaded for this thread."
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-          }
-
-          // ---------------------------------------------------- COMPOSE
-          PanelSeparator {
-            Layout.fillWidth: true
-            visible: root.inThread
-            foreground: root.foreground
-          }
-
-          RowLayout {
-            Layout.fillWidth: true
-            visible: root.inThread
-            spacing: Style.space(6)
-
-            TextField {
-              id: composeField
-              Layout.fillWidth: true
-              enabled: root.online && root.isSendable(root.active)
-              placeholderText: root.isSendable(root.active)
-                ? "Message… (Enter to send, Esc back)"
-                : "Group threads are read-only in v0.1"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              background: Rectangle {
-                radius: Style.cornerRadius
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.07)
-              }
-              onAccepted: root.send()
-              Keys.onEscapePressed: root.back()
             }
 
             Text {
-              text: "󰊐"
-              color: composeField.text.trim() === "" ? root.dim : root.cyan
+              Layout.fillWidth: true
+              visible: root.online && !root.inThread && root.threads.length === 0
+              text: "No threads in the current window yet — press r to refresh."
+              textFormat: Text.PlainText
+              color: root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              TapHandler { onTapped: root.send() }
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+              model: root.online && !root.inThread ? root.threads : []
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+
+                Layout.fillWidth: true
+                implicitHeight: rowRow.implicitHeight + Style.space(12)
+                radius: Style.cornerRadius
+                color: rowHover.hovered || root.cursor === index
+                  ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                  : "transparent"
+
+                HoverHandler { id: rowHover }
+                TapHandler { onTapped: root.openThread(modelData) }
+
+                RowLayout {
+                  id: rowRow
+                  anchors.fill: parent
+                  anchors.margins: Style.space(6)
+                  spacing: Style.space(8)
+
+                  // avatar circle with initials — the iMessage sidebar look
+                  Rectangle {
+                    width: Style.space(30); height: width; radius: width / 2
+                    color: modelData.unread > 0 ? root.mineFill : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+                    Text {
+                      anchors.centerIn: parent
+                      text: {
+                        var n = String(modelData.name || "")
+                        if (/^[+0-9]/.test(n) || n === "") return "#"
+                        var parts = n.trim().split(/\s+/)
+                        return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
+                      }
+                      color: modelData.unread > 0 ? "#ffffff" : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                  }
+
+                  ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(1)
+                    RowLayout {
+                      Layout.fillWidth: true
+                      spacing: Style.space(6)
+                      Text {
+                        Layout.fillWidth: true
+                        text: String(modelData.name || modelData.chat)
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: modelData.unread > 0
+                      }
+                      Text {
+                        text: root.fmtTime(modelData.last_ts)
+                        textFormat: Text.PlainText
+                        color: modelData.unread > 0 ? root.mineFill : root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                    Text {
+                      Layout.fillWidth: true
+                      text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
+                      maximumLineCount: 1
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+
+                  Rectangle {
+                    visible: modelData.unread > 0
+                    width: Style.space(18); height: width; radius: width / 2
+                    color: root.mineFill
+                    Text {
+                      anchors.centerIn: parent
+                      text: modelData.unread > 9 ? "9+" : String(modelData.unread)
+                      color: "#ffffff"
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                  }
+                }
+              }
+            }
+
+            // ------------------------------------------- CONVERSATION
+            Text {
+              Layout.fillWidth: true
+              visible: root.inThread && root.loading
+              text: "loading…"
+              horizontalAlignment: Text.AlignHCenter
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Repeater {
+              model: root.inThread ? root.bubbles : []
+              delegate: ColumnLayout {
+                id: bubbleRow
+                required property var modelData
+                readonly property bool mine: modelData.from_me === true
+
+                Layout.fillWidth: true
+                spacing: Style.space(2)
+
+                // day divider — "Today", "Yesterday", "Aug 28"
+                Text {
+                  Layout.fillWidth: true
+                  visible: String(modelData.day || "") !== ""
+                  text: String(modelData.day || "")
+                  horizontalAlignment: Text.AlignHCenter
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  topPadding: Style.space(10)
+                  bottomPadding: Style.space(4)
+                }
+
+                // the bubble itself. Width comes from the laid-out text
+                // (contentWidth), never the unwrapped implicitWidth — a long
+                // line would otherwise overshoot the cap and break alignment.
+                Rectangle {
+                  id: bubble
+                  readonly property real maxInner: Math.round(content.width * 0.78) - Style.space(22)
+                  Layout.alignment: bubbleRow.mine ? Qt.AlignRight : Qt.AlignLeft
+                  Layout.topMargin: modelData.groupStart ? Style.space(6) : 0
+                  Layout.preferredWidth: Math.ceil(bubbleText.contentWidth) + Style.space(22)
+                  Layout.preferredHeight: Math.ceil(bubbleText.contentHeight) + Style.space(14)
+                  radius: Style.space(16)
+                  color: bubbleRow.mine ? root.mineFill : root.theirsFill
+
+                  // iMessage squares off the corner nearest the sender on the
+                  // last bubble of a run — the "tail" without drawing a tail.
+                  Rectangle {
+                    visible: modelData.groupEnd === true
+                    width: Style.space(16); height: Style.space(16)
+                    color: bubble.color
+                    anchors.bottom: parent.bottom
+                    anchors.right: bubbleRow.mine ? parent.right : undefined
+                    anchors.left: bubbleRow.mine ? undefined : parent.left
+                  }
+
+                  Text {
+                    id: bubbleText
+                    x: Style.space(11); y: Style.space(7)
+                    width: bubble.maxInner
+                    text: String(modelData.text || "")
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    color: bubbleRow.mine ? root.mineText : root.theirsText
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+
+                // timestamp under the last bubble of a run
+                Text {
+                  Layout.alignment: bubbleRow.mine ? Qt.AlignRight : Qt.AlignLeft
+                  Layout.rightMargin: bubbleRow.mine ? Style.space(6) : 0
+                  Layout.leftMargin: bubbleRow.mine ? 0 : Style.space(6)
+                  visible: String(modelData.time || "") !== ""
+                  text: String(modelData.time || "")
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  bottomPadding: Style.space(4)
+                }
+              }
+            }
+
+            Text {
+              Layout.fillWidth: true
+              visible: root.inThread && !root.loading && root.bubbles.length === 0
+              text: "No messages loaded for this thread."
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
             }
           }
+        }
 
-          Text {
+        // ------------------------------------------------------ COMPOSE
+        PanelSeparator {
+          Layout.fillWidth: true
+          visible: root.inThread
+          foreground: root.foreground
+        }
+
+        RowLayout {
+          Layout.fillWidth: true
+          visible: root.inThread
+          spacing: Style.space(6)
+
+          TextField {
+            id: composeField
             Layout.fillWidth: true
-            visible: root.note !== ""
-            text: root.note
-            textFormat: Text.PlainText
-            color: root.note === "sent" ? root.okColor
-                 : (root.note === "sending…" ? root.dim : root.urgent)
+            enabled: root.online && root.isSendable(root.active)
+            placeholderText: root.isSendable(root.active) ? "iMessage" : "Group threads are read-only in v0.1"
+            foreground: root.foreground
+            accent: root.mineFill
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
+            font.pixelSize: Style.font.bodySmall
+            onAccepted: root.send()
+            Keys.onEscapePressed: root.back()
           }
 
-          Text {
-            Layout.fillWidth: true
-            visible: root.inThread
-            text: "Esc = back to threads"
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+          // send button — the blue arrow circle
+          Rectangle {
+            width: Style.space(28); height: width; radius: width / 2
+            color: composeField.text.trim() === "" ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.15) : root.mineFill
+            Text {
+              anchors.centerIn: parent
+              text: "↑"
+              color: composeField.text.trim() === "" ? root.dim : "#ffffff"
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+            TapHandler { onTapped: root.send() }
           }
+        }
+
+        Text {
+          Layout.fillWidth: true
+          visible: root.note !== ""
+          text: root.note
+          textFormat: Text.PlainText
+          color: root.note === "sending…" ? root.dim : root.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
       }
     }

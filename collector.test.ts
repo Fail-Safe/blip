@@ -103,6 +103,17 @@ describe("buildThreads", () => {
   test("handles an empty window", () => {
     expect(buildThreads([], "2026-01-01 00:00:00")).toEqual([]);
   });
+
+  test("a null chat falls back to the handle — never the string \"null\"", () => {
+    // Seen live: a staffing-spam SMS came back with chat:null and rendered as "null".
+    const threads = buildThreads(
+      [msg({ chat: null as unknown as string, handle: "+212657741612", name: null })],
+      "",
+    );
+    expect(threads[0]!.chat).toBe("+212657741612");
+    expect(threads[0]!.name).toBe("+212657741612");
+    expect(threads[0]!.handle).toBe("+212657741612");
+  });
 });
 
 describe("displayName", () => {

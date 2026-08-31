@@ -42,6 +42,18 @@ toast eligibility) and `readMark` (highest ts Fred has *looked at*, drives the
 badge). Collapsing them is a bug: the poll watermark advances every tick, so a
 badge measured against it flashes to 1 and resets six seconds later.
 
+## The conversation view
+
+Real bubbles: yours blue on the right, theirs grey on the left, grouped by
+sender with one timestamp per run and day dividers — computed in `thread.ts`
+(unit-tested), rendered by `Panel.qml`. Typing works because the panel sets
+`PanelKeyCatcher.blocked: composeField.activeFocus`; without it the catcher
+eats every keystroke before the compose box sees one. Enter sends.
+
+IPC: `qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 14089216687`
+opens a thread directly (bare digits — `qs` rejects a leading `+` as a flag,
+and `show` collides with `qs ipc show`).
+
 ## Known limits (v0.1)
 
 - **Group threads are read-only.** They carry an opaque `chat_identifier`

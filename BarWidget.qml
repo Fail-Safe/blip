@@ -40,6 +40,20 @@ BarWidget {
   function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function toggle() { if (panelLoader.item) panelLoader.item.toggle() }
+  function show(chat) {
+    if (!panelLoader.item) return
+    panelLoader.item.open()
+    // `qs ipc call` rejects a leading "+" as a flag, so accept the bare digits too.
+    var want = String(chat)
+    var t = null
+    for (var i = 0; i < threads.length; i++) {
+      var c = String(threads[i].chat)
+      if (c === want || c === "+" + want) { t = threads[i]; break }
+    }
+    if (!t && /^[0-9]+$/.test(want)) want = "+" + want
+    // Unknown to the current window: still open it, with the id as the name.
+    panelLoader.item.openThread(t || { chat: want, handle: want, name: want })
+  }
 
   function injectPanel() {
     var target = panelLoader.item
@@ -166,6 +180,7 @@ BarWidget {
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
+    function goto(chat: string): void { root.show(chat) }
   }
 
   // ------------------------------------------------------------ bar button
