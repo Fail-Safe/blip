@@ -81,10 +81,11 @@ API (BlueBubbles territory). Not built.
 
 ## Known limits
 
-- **Group threads are read-only** (history works, sender names shown). They carry an opaque `chat_identifier`
-  (`chat.style=43`), but AppleScript needs the full GUID (`any;+;<id>`), which
-  `imsg --json` does not expose. Rather than risk delivering to the wrong
-  thread, sending is restricted to DMs. Reading groups works fine.
+- **Group sends** go `--chat-id` with the full AppleScript GUID (`any;+;<id>`)
+  that `imsg groups` supplies; a group whose GUID is not cached yet is read-only
+  rather than guessed. Verified live 2026-08-30 (LMT). `is_delivered` stays 0
+  for group rows in chat.db even when delivery succeeds — do not read it as a
+  failure.
 - **No attachments.** Text only, both directions.
 - **No tapbacks / edits / threading.** AppleScript cannot do them; that needs
   Apple's private API (see BlueBubbles).

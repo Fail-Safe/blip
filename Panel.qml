@@ -116,7 +116,7 @@ Panel {
     var text = composeField.text
     if (!root.inThread || text.trim() === "") return
     if (!isSendable(root.active)) {
-      note = "Group threads are read-only for now — send from your phone"
+      note = "Read-only — group id unknown — send from your phone"
       return
     }
     note = "sending…"
