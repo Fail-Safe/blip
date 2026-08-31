@@ -42,6 +42,16 @@ opened — viewing the list does not clear it. `state.json` keeps `readMarks`
 (one timestamp per chat) alongside the global `readMark`; right-click on the
 bar widget still clears everything.
 
+## Sync latency and deletions
+
+Blip polls fnix's chat.db every **6 s** and caches no message content, so it
+is never more than one tick behind fnix. Phone → fnix is Apple's job (Messages
+in iCloud, on): usually seconds while fnix is awake. **Deletions** land in a
+30-day "Recently Deleted" bin (`chat_recoverable_message_join`) that stays in
+chat.db; fnix's `imsg` hides those rows by default since 2026-08-30, so a
+conversation deleted on the phone disappears from Blip within one poll of the
+iCloud sync. `IMSG_INCLUDE_DELETED=1` shows them again.
+
 ## Two marks, not one
 
 `state.json` tracks `watermark` (highest ts the collector has *seen*, drives
