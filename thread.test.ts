@@ -133,6 +133,18 @@ describe("decorate", () => {
     expect(b[1]!.groupStart).toBe(true);
   });
 
+  test("in a group, a different member breaks the run even seconds apart", () => {
+    const b = decorate(
+      [
+        msg({ ts: "2026-08-30 12:00:00", handle: "+1111111111", name: "Craig" }),
+        msg({ ts: "2026-08-30 12:00:30", handle: "+2222222222", name: "Scott" }),
+      ],
+      today,
+    );
+    expect(b[0]!.groupEnd).toBe(true);
+    expect(b[1]!.groupStart).toBe(true);
+  });
+
   test("a gap longer than 15 minutes breaks the group", () => {
     const b = decorate(
       [msg({ ts: "2026-08-30 12:00:00" }), msg({ ts: "2026-08-30 12:20:00" })],

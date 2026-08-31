@@ -61,7 +61,25 @@ IPC: `qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 14089216687`
 opens a thread directly (bare digits — `qs` rejects a leading `+` as a flag,
 and `show` collides with `qs ipc show`).
 
-## Known limits (v0.1)
+## Groups
+
+Titled the way Messages.app does it: the group's `display_name` when it has one
+("LMT"), else the members' names ("Craig Chapman, Scott Lewis"). Metadata comes
+from `imsg groups` — a vic-side shim subcommand over sqlite on fnix — refreshed
+on deep fetches and cached in `state.json`. Sender names sit above each run.
+
+## Copying
+
+Bubbles are read-only `TextEdit`s: drag to select, Ctrl+C. Right-click a
+bubble to copy the whole message (`wl-copy`, fed via stdin).
+
+## Read receipts — not possible
+
+Tested 2026-08-30: opening a conversation on fnix via `open imessage://<handle>`
+left every unread row's `is_read` untouched. Marking read needs Apple's private
+API (BlueBubbles territory). Not built.
+
+## Known limits
 
 - **Group threads are read-only** (history works, sender names shown). They carry an opaque `chat_identifier`
   (`chat.style=43`), but AppleScript needs the full GUID (`any;+;<id>`), which

@@ -75,9 +75,14 @@ export interface Toast {
  *   readMark  — highest ts Fred has actually *looked at*. Drives the badge.
  *               Only moves on --mark-read (panel open, or middle-click).
  */
+export interface GroupInfo { name: string; participants: string[] }
+
 export interface BlipState {
   watermark: string;
   readMark: string;
+  /** Group chat metadata from chat.db (display_name + members), refreshed on
+   *  --deep. Cached so shallow polls can name groups without a second ssh. */
+  groups: Record<string, GroupInfo>;
   /** Per-thread read marks — iMessage semantics: the blue dot stays on a
    *  thread until THAT conversation is opened, not until the list is viewed. */
   readMarks: Record<string, string>;
@@ -106,10 +111,11 @@ export function loadState(path = STATE_PATH): BlipState {
       // the safe migration: it reports zero unread rather than a fake backlog.
       readMark: typeof s.readMark === "string" ? s.readMark : watermark,
       readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
+      groups: s.groups && typeof s.groups === "object" ? { ...s.groups } : {},
       toasted: Array.isArray(s.toasted) ? s.toasted.slice(-200) : [],
     };
   } catch {
-    return { watermark: "", readMark: "", readMarks: {}, toasted: [] };
+    return { watermark: "", readMark: "", readMarks: {}, groups: {}, toasted: [] };
   }
 }
 
@@ -185,11 +191,25 @@ export function chatKey(m: ImsgMessage | undefined): string {
  * unread, and on an empty global mark (first ever run) nothing is unread —
  * otherwise the very first poll would claim 60 new messages.
  */
+/**
+ * Name a group the way Messages.app does: its display_name if it has one,
+ * else the members' names. Member names are resolved from whoever has spoken
+ * in the fetched window; a silent member falls back to their handle.
+ */
+export function groupName(chat: string, info: GroupInfo | undefined, byHandle: Map<string, string>): string {
+  if (info?.name) return info.name;
+  const members = (info?.participants ?? []).map((h) => byHandle.get(h) || h);
+  return members.length ? members.join(", ") : chat;
+}
+
 export function buildThreads(
   msgs: ImsgMessage[],
   watermark: string,
   readMarks: Record<string, string> = {},
+  groups: Record<string, GroupInfo> = {},
 ): Thread[] {
+  const byHandle = new Map<string, string>();
+  for (const m of msgs) if (m.name && m.handle && !byHandle.has(m.handle)) byHandle.set(m.handle, m.name);
   const byChat = new Map<string, ImsgMessage[]>();
   for (const m of msgs) {
     const key = chatKey(m);
@@ -208,9 +228,7 @@ export function buildThreads(
       : 0;
     threads.push({
       chat,
-      // Groups have no display_name in imsg's output; label them so the list
-      // does not pass one participant off as the whole conversation.
-      name: isGroupChat(chat) ? displayName(sorted) + " +group" : displayName(sorted),
+      name: isGroupChat(chat) ? groupName(chat, groups[chat], byHandle) : displayName(sorted),
       handle: String(last.handle || chat),
       service: last.service,
       last_ts: last.ts,
@@ -300,6 +318,27 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   }
 }
 
+/** `imsg groups` — a vic-side shim subcommand over sqlite on fnix. */
+export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | null {
+  const res = runner(`${HOME}/bin/imsg`, ["groups"], { encoding: "utf8", timeout: 15000 });
+  if (res.status !== 0) return null;
+  try {
+    const rows = JSON.parse(res.stdout as string);
+    if (!Array.isArray(rows)) return null;
+    const out: Record<string, GroupInfo> = {};
+    for (const r of rows) {
+      if (!r || typeof r.chat !== "string") continue;
+      out[r.chat] = {
+        name: typeof r.name === "string" ? r.name : "",
+        participants: typeof r.participants === "string" ? r.participants.split(",").filter(Boolean) : [],
+      };
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- main
 
 export function collect(deep: boolean, markRead = false, readChat = ""): BlipOutput {
@@ -326,8 +365,11 @@ export function collect(deep: boolean, markRead = false, readChat = ""): BlipOut
   // Opening one conversation clears only that thread's dot.
   const readMarks = { ...state.readMarks };
   if (readChat) readMarks[readChat] = highest;
+  // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
+  // keep the last good copy if the lookup fails.
+  const groups = (deep ? fetchGroups() : null) ?? state.groups;
   const msgs = dedupeSelfEcho(fetched.msgs);
-  const threads = buildThreads(msgs, readMark, readMarks);
+  const threads = buildThreads(msgs, readMark, readMarks, groups);
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const unread = threads.reduce((n, t) => n + t.unread, 0);
 
@@ -339,6 +381,7 @@ export function collect(deep: boolean, markRead = false, readChat = ""): BlipOut
     // whole 60-message window as unread the moment the plugin is installed.
     readMark: state.readMark === "" ? highest : readMark,
     readMarks,
+    groups,
     toasted: [...state.toasted, ...toast.map((t) => `${t.ts}|${t.chat}|${t.text}`)],  // == toastKey
   });
 

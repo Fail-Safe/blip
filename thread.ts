@@ -101,15 +101,20 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
     const next = i < msgs.length - 1 ? msgs[i + 1]! : null;
 
     const newDay = !prev || prev.ts.slice(0, 10) !== m.ts.slice(0, 10);
+    // In a group, two members' messages must not merge into one run under
+    // the first name — so a run breaks on sender (handle) change, not only
+    // on the from_me flip.
+    const sameSender = (a: ImsgMessage, b: ImsgMessage) =>
+      a.from_me === b.from_me && (a.from_me || a.handle === b.handle);
     const groupStart =
       !prev ||
       newDay ||
-      prev.from_me !== m.from_me ||
+      !sameSender(prev, m) ||
       minutesBetween(prev.ts, m.ts) > GROUP_GAP_MINUTES;
     const groupEnd =
       !next ||
       next.ts.slice(0, 10) !== m.ts.slice(0, 10) ||
-      next.from_me !== m.from_me ||
+      !sameSender(m, next) ||
       minutesBetween(m.ts, next.ts) > GROUP_GAP_MINUTES;
 
     out.push({

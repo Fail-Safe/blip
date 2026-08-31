@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import {
   buildThreads,
+  fetchGroups,
+  groupName,
   dedupeSelfEcho,
   isGroupChat,
   displayName,
@@ -87,7 +89,6 @@ describe("buildThreads", () => {
     const guid = "053856bb0d9a40e392db59eace1c56d1";
     const threads = buildThreads([msg({ chat: guid, name: "Craig Chapman" })], "");
     expect(threads[0]!.chat).toBe(guid);
-    expect(threads[0]!.name).toBe("Craig Chapman +group");
   });
 
   test("the same person across a DM and a group stays two threads", () => {
@@ -166,9 +167,25 @@ describe("self-echo in the thread list", () => {
     expect(msgs).toHaveLength(2);
   });
 
-  test("group threads are labelled so one member is not passed off as the group", () => {
-    const threads = buildThreads([msg({ chat: "053856bb0d9a40e392db59eace1c56d1", name: "Craig Chapman" })], "");
-    expect(threads[0]!.name).toBe("Craig Chapman +group");
+  test("a named group uses its display_name", () => {
+    const guid = "ce5a593a78af408282d61461ade89135";
+    const threads = buildThreads([msg({ chat: guid, name: "Thomas Dodd" })], "", {}, { [guid]: { name: "LMT", participants: ["+1"] } });
+    expect(threads[0]!.name).toBe("LMT");
+  });
+
+  test("an unnamed group lists its members, resolving names from the window", () => {
+    const guid = "053856bb0d9a40e392db59eace1c56d1";
+    const threads = buildThreads(
+      [msg({ chat: guid, handle: "+16164385399", name: "Craig Chapman" })],
+      "", {},
+      { [guid]: { name: "", participants: ["+16164385399", "+19543953540"] } },
+    );
+    expect(threads[0]!.name).toBe("Craig Chapman, +19543953540");
+  });
+
+  test("a group with no metadata at all falls back to its id, never one member", () => {
+    const guid = "053856bb0d9a40e392db59eace1c56d1";
+    expect(groupName(guid, undefined, new Map())).toBe(guid);
   });
 });
 
@@ -294,28 +311,29 @@ describe("maxTs", () => {
 describe("state and allowlist I/O", () => {
   test("round-trips state", () => {
     const p = join(tmp(), "state.json");
-    saveState({ watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00", readMarks: { A: "x" }, toasted: ["a"] }, p);
+    saveState({ watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00", readMarks: { A: "x" }, groups: {}, toasted: ["a"] }, p);
     expect(loadState(p)).toEqual({
       watermark: "2026-08-30 10:00:00",
       readMark: "2026-08-30 09:00:00",
       readMarks: { A: "x" },
+      groups: {},
       toasted: ["a"],
     });
   });
 
   test("a missing state file yields a safe empty watermark", () => {
-    expect(loadState(join(tmp(), "nope.json"))).toEqual({ watermark: "", readMark: "", readMarks: {}, toasted: [] });
+    expect(loadState(join(tmp(), "nope.json"))).toEqual({ watermark: "", readMark: "", readMarks: {}, groups: {}, toasted: [] });
   });
 
   test("corrupt state does not throw", () => {
     const p = join(tmp(), "bad.json");
     writeFileSync(p, "{ this is not json");
-    expect(loadState(p)).toEqual({ watermark: "", readMark: "", readMarks: {}, toasted: [] });
+    expect(loadState(p)).toEqual({ watermark: "", readMark: "", readMarks: {}, groups: {}, toasted: [] });
   });
 
   test("the toast ring is capped so the state file cannot grow forever", () => {
     const p = join(tmp(), "big.json");
-    saveState({ watermark: "x", readMark: "x", readMarks: {}, toasted: Array.from({ length: 500 }, (_, i) => `k${i}`) }, p);
+    saveState({ watermark: "x", readMark: "x", readMarks: {}, groups: {}, toasted: Array.from({ length: 500 }, (_, i) => `k${i}`) }, p);
     expect(loadState(p).toasted).toHaveLength(200);
   });
 
@@ -387,5 +405,18 @@ describe("fetchMessages", () => {
     const r = fetchMessages(10, fake({ status: 0, stdout: '{"oops":true}' }));
     expect(r.ok).toBe(false);
     expect(r.error).toContain("bad JSON");
+  });
+});
+
+describe("fetchGroups", () => {
+  const fake = (r: { status: number; stdout?: string }) =>
+    (() => ({ status: r.status, stdout: r.stdout ?? "", stderr: "" })) as never;
+  test("parses sqlite -json rows into a map", () => {
+    const g = fetchGroups(fake({ status: 0, stdout: JSON.stringify([{ chat: "abc", name: "LMT", participants: "+1,+2" }]) }));
+    expect(g).toEqual({ abc: { name: "LMT", participants: ["+1", "+2"] } });
+  });
+  test("a failed lookup returns null so the cached copy is kept", () => {
+    expect(fetchGroups(fake({ status: 69 }))).toBeNull();
+    expect(fetchGroups(fake({ status: 0, stdout: "junk" }))).toBeNull();
   });
 });

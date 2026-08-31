@@ -53,6 +53,7 @@ Panel {
   property string note: ""           // transient status line (send result, errors)
   property int cursor: -1            // keyboard row selection in list view
   property bool pinToBottom: false   // scroll to the newest bubble once layout settles
+  property bool bubbleFocused: false // a bubble's TextEdit has focus (text selection in progress)
 
   readonly property bool inThread: active !== null
   readonly property bool activeIsGroup: inThread && /^[0-9a-f]{32}$/i.test(String(active.chat || ""))
@@ -130,6 +131,20 @@ Panel {
     sendProc.running = true
   }
 
+  Process { id: copyProc }
+  function copyText(t) {
+    if (t === "") return
+    // stdin, not argv: message text can be long and can start with "-".
+    copyProc.command = ["sh", "-c", "wl-copy"]
+    copyProc.stdinEnabled = true
+    copyProc.running = true
+    copyProc.write(t)
+    copyProc.stdinEnabled = false
+    note = "copied"
+    noteTimer.restart()
+  }
+  Timer { id: noteTimer; interval: 1500; onTriggered: if (root.note === "copied") root.note = "" }
+
   function fmtTime(ts) {
     var s = String(ts || "")
     if (s.length < 16) return s
@@ -205,7 +220,9 @@ Panel {
       anchors.fill: parent
       // PanelKeyCatcher runs BEFORE any focused descendant (Keys.BeforeItem).
       // Without this it swallows every letter typed into the compose box.
-      blocked: composeField.activeFocus
+      // Any focused editor — the compose box or a bubble being selected —
+      // must receive its own keys (Ctrl+C, arrows, Esc).
+      blocked: composeField.activeFocus || root.bubbleFocused
       onCloseRequested: root.inThread ? root.back() : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
@@ -471,18 +488,33 @@ Panel {
                     anchors.bottom: parent.bottom
                     anchors.right: bubbleRow.mine ? parent.right : undefined
                     anchors.left: bubbleRow.mine ? undefined : parent.left
-                  }
-
-                  Text {
+                  }                  // TextEdit, not Text: read-only but selectable, so a message
+                  // can be highlighted and Ctrl+C'd like any other text.
+                  TextEdit {
                     id: bubbleText
                     x: Style.space(11); y: Style.space(7)
                     width: bubble.maxInner
                     text: String(modelData.text || "")
-                    textFormat: Text.PlainText
-                    wrapMode: Text.Wrap
+                    textFormat: TextEdit.PlainText
+                    wrapMode: TextEdit.Wrap
+                    readOnly: true
+                    selectByMouse: true
+                    persistentSelection: false
                     color: bubbleRow.mine ? root.mineText : root.theirsText
+                    selectionColor: bubbleRow.mine ? "#ffffff" : root.mineFill
+                    selectedTextColor: bubbleRow.mine ? root.mineFill : "#ffffff"
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
+                    // Focus goes to the bubble while selecting; the key catcher
+                    // is blocked for any focused editor (see below).
+                    onActiveFocusChanged: root.bubbleFocused = activeFocus
+                    Keys.onEscapePressed: { deselect(); composeField.forceActiveFocus() }
+                  }
+
+                  // right-click = copy the whole message
+                  TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: root.copyText(String(modelData.text || ""))
                   }
                 }
 
