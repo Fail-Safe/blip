@@ -35,6 +35,13 @@ Automation→Messages (to drive AppleScript). cron holds neither — verified
 2026-06-11, see `fnix:~/.claude/Tools/imsg-loop-watchdog.sh`. SSH is a working
 transport exactly where cron was a dead end.
 
+## Unread dots are per thread
+
+Like iMessage, the blue dot beside a name stays until *that* conversation is
+opened — viewing the list does not clear it. `state.json` keeps `readMarks`
+(one timestamp per chat) alongside the global `readMark`; right-click on the
+bar widget still clears everything.
+
 ## Two marks, not one
 
 `state.json` tracks `watermark` (highest ts the collector has *seen*, drives

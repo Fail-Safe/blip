@@ -72,10 +72,11 @@ Panel {
     bubbles = []
     note = ""
     cursor = -1
-    // Deep fetch for a real thread list, and clear the badge — opening the
-    // panel is exactly the moment Fred has "seen" his messages.
-    if (hostWidget) hostWidget.refresh(true, true)
+    // Deep fetch for a real thread list. Does NOT clear dots: like iMessage,
+    // a thread stays marked until that conversation is opened.
+    if (hostWidget) hostWidget.refresh(true, false)
     controller.show()
+    Qt.callLater(function() { flick.contentY = 0 })
   }
   function close() { controller.hide() }
   function toggle() { opened ? close() : open() }
@@ -90,7 +91,7 @@ Panel {
     active = null
     bubbles = []
     note = ""
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { flick.contentY = 0; keyCatcher.forceActiveFocus() })
   }
 
   function openThread(t) {
@@ -101,6 +102,7 @@ Panel {
     loading = true
     threadProc.command = ["bun", root.threadScript, String(t.chat), "80"]
     threadProc.running = true
+    if (hostWidget) hostWidget.markThreadRead(String(t.chat))
     Qt.callLater(function() { composeField.forceActiveFocus() })
   }
 
@@ -318,10 +320,18 @@ Panel {
                   anchors.margins: Style.space(6)
                   spacing: Style.space(8)
 
+                  // the iMessage blue dot — present only while the thread has
+                  // unread inbound; the slot stays so names line up.
+                  Rectangle {
+                    width: Style.space(9); height: width; radius: width / 2
+                    color: root.mineFill
+                    opacity: modelData.unread > 0 ? 1 : 0
+                  }
+
                   // avatar circle with initials — the iMessage sidebar look
                   Rectangle {
                     width: Style.space(30); height: width; radius: width / 2
-                    color: modelData.unread > 0 ? root.mineFill : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
                     Text {
                       anchors.centerIn: parent
                       text: {
@@ -330,7 +340,7 @@ Panel {
                         var parts = n.trim().split(/\s+/)
                         return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
                       }
-                      color: modelData.unread > 0 ? "#ffffff" : root.foreground
+                      color: root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                       font.bold: true
@@ -373,19 +383,6 @@ Panel {
                     }
                   }
 
-                  Rectangle {
-                    visible: modelData.unread > 0
-                    width: Style.space(18); height: width; radius: width / 2
-                    color: root.mineFill
-                    Text {
-                      anchors.centerIn: parent
-                      text: modelData.unread > 9 ? "9+" : String(modelData.unread)
-                      color: "#ffffff"
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-                  }
                 }
               }
             }

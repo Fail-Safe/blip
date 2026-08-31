@@ -77,19 +77,21 @@ BarWidget {
 
   // ------------------------------------------------------------ collector
   // `deep` widens the fetch window for the panel; `markRead` clears the badge.
-  property bool pendingDeep: false
-  property bool pendingMarkRead: false
+  // `readChat` clears one thread's blue dot — iMessage semantics: the dot
+  // survives viewing the list and only goes when that conversation is opened.
+  property var queued: null            // a refresh requested while one was running
 
-  function refresh(deep, markRead) {
-    if (collector.running) return
-    pendingDeep = deep === true
-    pendingMarkRead = markRead === true
+  function refresh(deep, markRead, readChat) {
+    var req = { deep: deep === true, markRead: markRead === true, readChat: String(readChat || "") }
+    if (collector.running) { queued = req; return }   // never drop a read-mark
     var args = ["bun", collectorPath]
-    if (pendingDeep) args.push("--deep")
-    if (pendingMarkRead) args.push("--mark-read")
+    if (req.deep) args.push("--deep")
+    if (req.markRead) args.push("--mark-read")
+    if (req.readChat !== "") args.push("--read", req.readChat)
     collector.command = args
     collector.running = true
   }
+  function markThreadRead(chat) { refresh(true, false, chat) }
   function markAllRead() { refresh(false, true) }
 
   Process {
@@ -119,7 +121,10 @@ BarWidget {
         }
       }
     }
-    onExited: function(code, status) { if (code !== 0) root.healthy = false }
+    onExited: function(code, status) {
+      if (code !== 0) root.healthy = false
+      if (root.queued) { var q = root.queued; root.queued = null; Qt.callLater(function() { root.refresh(q.deep, q.markRead, q.readChat) }) }
+    }
   }
 
   Timer {

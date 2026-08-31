@@ -13,6 +13,8 @@
  *
  *   bun collector.ts            # poll: shallow window, badge + toasts
  *   bun collector.ts --deep     # panel open: wider window, full thread list
+ *   bun collector.ts --mark-read        # clear every dot (right-click)
+ *   bun collector.ts --read <chat>      # clear one thread's dot (opened it)
  */
 
 import { spawnSync } from "node:child_process";
@@ -72,6 +74,9 @@ export interface Toast {
 export interface BlipState {
   watermark: string;
   readMark: string;
+  /** Per-thread read marks — iMessage semantics: the blue dot stays on a
+   *  thread until THAT conversation is opened, not until the list is viewed. */
+  readMarks: Record<string, string>;
   toasted: string[];   // recent "ts|chat|text" keys, for self-thread echo dedupe
 }
 
@@ -96,10 +101,11 @@ export function loadState(path = STATE_PATH): BlipState {
       // Pre-two-mark state files have no readMark. Inheriting the watermark is
       // the safe migration: it reports zero unread rather than a fake backlog.
       readMark: typeof s.readMark === "string" ? s.readMark : watermark,
+      readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
       toasted: Array.isArray(s.toasted) ? s.toasted.slice(-200) : [],
     };
   } catch {
-    return { watermark: "", readMark: "", toasted: [] };
+    return { watermark: "", readMark: "", readMarks: {}, toasted: [] };
   }
 }
 
@@ -144,11 +150,16 @@ export function chatKey(m: ImsgMessage | undefined): string {
 /**
  * Group a flat message window into threads, newest-first.
  *
- * `unread` counts inbound messages strictly newer than the watermark. Outbound
- * is never unread, and on an empty watermark (first ever run) nothing is
- * unread — otherwise the very first poll would claim 60 new messages.
+ * `unread` counts inbound messages strictly newer than the thread's read mark:
+ * the per-thread mark if one exists, else the global one. Outbound is never
+ * unread, and on an empty global mark (first ever run) nothing is unread —
+ * otherwise the very first poll would claim 60 new messages.
  */
-export function buildThreads(msgs: ImsgMessage[], watermark: string): Thread[] {
+export function buildThreads(
+  msgs: ImsgMessage[],
+  watermark: string,
+  readMarks: Record<string, string> = {},
+): Thread[] {
   const byChat = new Map<string, ImsgMessage[]>();
   for (const m of msgs) {
     const key = chatKey(m);
@@ -161,8 +172,9 @@ export function buildThreads(msgs: ImsgMessage[], watermark: string): Thread[] {
   for (const [chat, list] of byChat) {
     const sorted = [...list].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
     const last = sorted[sorted.length - 1]!;
+    const mark = readMarks[chat] && readMarks[chat]! > watermark ? readMarks[chat]! : watermark;
     const unread = watermark
-      ? sorted.filter((m) => !m.from_me && m.ts > watermark).length
+      ? sorted.filter((m) => !m.from_me && m.ts > mark).length
       : 0;
     threads.push({
       chat,
@@ -258,7 +270,7 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
 
 // ---------------------------------------------------------------- main
 
-export function collect(deep: boolean, markRead = false): BlipOutput {
+export function collect(deep: boolean, markRead = false, readChat = ""): BlipOutput {
   const now = new Date().toISOString();
   const state = loadState();
   const fetched = fetchMessages(deep ? DEEP_WINDOW : POLL_WINDOW);
@@ -279,7 +291,10 @@ export function collect(deep: boolean, markRead = false): BlipOutput {
   // Badge counts against readMark (what Fred has seen); toasts fire against
   // watermark (what the collector has seen). See BlipState.
   const readMark = markRead ? highest : state.readMark;
-  const threads = buildThreads(fetched.msgs, readMark);
+  // Opening one conversation clears only that thread's dot.
+  const readMarks = { ...state.readMarks };
+  if (readChat) readMarks[readChat] = highest;
+  const threads = buildThreads(fetched.msgs, readMark, readMarks);
   const toast = selectToasts(fetched.msgs, state.watermark, loadAllowlist(), state.toasted);
   const unread = threads.reduce((n, t) => n + t.unread, 0);
 
@@ -290,6 +305,7 @@ export function collect(deep: boolean, markRead = false): BlipOutput {
     // First ever run: adopt the current high-water rather than reporting the
     // whole 60-message window as unread the moment the plugin is installed.
     readMark: state.readMark === "" ? highest : readMark,
+    readMarks,
     toasted: [...state.toasted, ...toast.map((t) => `${t.ts}|${t.chat}|${t.text}`)],
   });
 
@@ -299,8 +315,10 @@ export function collect(deep: boolean, markRead = false): BlipOutput {
 if (import.meta.main) {
   const deep = process.argv.includes("--deep");
   const markRead = process.argv.includes("--mark-read");
+  const ri = process.argv.indexOf("--read");
+  const readChat = ri >= 0 ? String(process.argv[ri + 1] ?? "") : "";
   try {
-    console.log(JSON.stringify(collect(deep, markRead)));
+    console.log(JSON.stringify(collect(deep, markRead, readChat)));
   } catch (e) {
     console.log(
       JSON.stringify({

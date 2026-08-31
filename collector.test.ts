@@ -104,6 +104,28 @@ describe("buildThreads", () => {
     expect(buildThreads([], "2026-01-01 00:00:00")).toEqual([]);
   });
 
+  test("a per-thread read mark clears only that thread", () => {
+    const threads = buildThreads(
+      [
+        msg({ chat: "A", handle: "A", ts: "2026-08-30 11:00:00" }),
+        msg({ chat: "B", handle: "B", ts: "2026-08-30 11:00:00" }),
+      ],
+      "2026-08-30 10:00:00",
+      { A: "2026-08-30 11:00:00" },
+    );
+    const byChat = Object.fromEntries(threads.map((t) => [t.chat, t.unread]));
+    expect(byChat).toEqual({ A: 0, B: 1 });
+  });
+
+  test("a stale per-thread mark never resurrects unread below the global mark", () => {
+    const threads = buildThreads(
+      [msg({ chat: "A", handle: "A", ts: "2026-08-30 09:30:00" })],
+      "2026-08-30 10:00:00",
+      { A: "2026-08-30 09:00:00" },
+    );
+    expect(threads[0]!.unread).toBe(0);
+  });
+
   test("a null chat falls back to the handle — never the string \"null\"", () => {
     // Seen live: a staffing-spam SMS came back with chat:null and rendered as "null".
     const threads = buildThreads(
@@ -228,27 +250,28 @@ describe("maxTs", () => {
 describe("state and allowlist I/O", () => {
   test("round-trips state", () => {
     const p = join(tmp(), "state.json");
-    saveState({ watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00", toasted: ["a"] }, p);
+    saveState({ watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00", readMarks: { A: "x" }, toasted: ["a"] }, p);
     expect(loadState(p)).toEqual({
       watermark: "2026-08-30 10:00:00",
       readMark: "2026-08-30 09:00:00",
+      readMarks: { A: "x" },
       toasted: ["a"],
     });
   });
 
   test("a missing state file yields a safe empty watermark", () => {
-    expect(loadState(join(tmp(), "nope.json"))).toEqual({ watermark: "", readMark: "", toasted: [] });
+    expect(loadState(join(tmp(), "nope.json"))).toEqual({ watermark: "", readMark: "", readMarks: {}, toasted: [] });
   });
 
   test("corrupt state does not throw", () => {
     const p = join(tmp(), "bad.json");
     writeFileSync(p, "{ this is not json");
-    expect(loadState(p)).toEqual({ watermark: "", readMark: "", toasted: [] });
+    expect(loadState(p)).toEqual({ watermark: "", readMark: "", readMarks: {}, toasted: [] });
   });
 
   test("the toast ring is capped so the state file cannot grow forever", () => {
     const p = join(tmp(), "big.json");
-    saveState({ watermark: "x", readMark: "x", toasted: Array.from({ length: 500 }, (_, i) => `k${i}`) }, p);
+    saveState({ watermark: "x", readMark: "x", readMarks: {}, toasted: Array.from({ length: 500 }, (_, i) => `k${i}`) }, p);
     expect(loadState(p).toasted).toHaveLength(200);
   });
 
@@ -258,6 +281,7 @@ describe("state and allowlist I/O", () => {
     const p = join(tmp(), "legacy.json");
     writeFileSync(p, JSON.stringify({ watermark: "2026-08-30 10:00:00", toasted: [] }));
     expect(loadState(p).readMark).toBe("2026-08-30 10:00:00");
+    expect(loadState(p).readMarks).toEqual({});
   });
 
   test("reads a bare-array allowlist", () => {
