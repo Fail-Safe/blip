@@ -26,6 +26,7 @@ import {
   loadMutelist,
   matchesMute,
   mutedChats,
+  resolveMuted,
   dropMuted,
   dropMutedChats,
   visibleLedgerChats,
@@ -738,6 +739,8 @@ describe("state and allowlist I/O", () => {
       chatAliases: { OLD: "A" },
       pins: { A: 0 },
       alertsOff: [],
+      mutedChats: [],
+      muteKey: "",
       toasted: [opaque],
     });
     expect(statSync(p).mode & 0o777).toBe(0o600);
@@ -1180,6 +1183,13 @@ describe("a link that just arrived opens the share sheet", () => {
     ], WM, []);
     expect(out[0]!.url).toBe("https://a.test/1");
     expect(out[0]!.urls).toEqual(["https://a.test/1", "https://b.test/2"]);
+  });
+
+  test("a link already read on the iPhone does not open the sheet after a long sleep", () => {
+    const readLink = msg({ ts: "2026-09-02T12:30:00Z", from_me: false, text: "https://a.test/1", read: true });
+    const unread = msg({ ts: "2026-09-02T12:31:00Z", from_me: false, text: "https://b.test/2", read: false });
+    const out = selectIncomingLinks([readLink, unread], WM, []);
+    expect(out.map((l) => l.url)).toEqual(["https://b.test/2"]);
   });
 
   test("a link fires once — its key suppresses the next poll", () => {
@@ -1826,6 +1836,26 @@ describe("mute list", () => {
     expect(mutedChats([blast()], [])).toEqual([]);
   });
 
+  test("a chat found muted stays muted when its rows leave the window", () => {
+    // The flicker: poll A had no row of the blast in view, so the Mac's unread
+    // snapshot (which knows no phrases) badged it; poll B's catch-up fetched its
+    // rows and dropped it; poll C, rows gone again, badged it once more.
+    const list = ["Stop2End"];
+    const a = resolveMuted([msg({ chat: "+15550100002", handle: "+15550100002", text: "lunch?" })], list, {});
+    expect(a.muted).toEqual([]);                                   // A: nothing in view yet
+    const b = resolveMuted([blast()], list, {});                   // B: catch-up rows arrive
+    expect(b.muted).toEqual(["78462"]);
+    const c = resolveMuted([], list, { mutedChats: b.muted, muteKey: b.muteKey });
+    expect(c.muted).toEqual(["78462"]);                            // C: rows gone, still muted
+  });
+
+  test("editing the mute list releases what the old list had muted", () => {
+    const b = resolveMuted([blast()], ["Stop2End"], {});
+    const edited = resolveMuted([], ["ActBlue"], { mutedChats: b.muted, muteKey: b.muteKey });
+    expect(edited.muted).toEqual([]);
+    expect(resolveMuted([], [], { mutedChats: b.muted, muteKey: b.muteKey })).toEqual({ muted: [], muteKey: "" });
+  });
+
   test("quoting a muted phrase to a friend does not mute the friend", () => {
     // Outbound only: you forwarding "look what ActBlue sent me" is not spam.
     const mine = msg({ chat: "+15550100002", handle: "+15550100002", from_me: true,
@@ -2010,6 +2040,7 @@ describe("security codes: detect, hold once, never from a group", () => {
   });
 
   test("selectCodes: inbound, new, DM only, once", () => {
+    const NOW = Date.parse("2026-09-02T12:35:00Z");
     const m = msg({ ts: "2026-09-02T12:30:00Z", from_me: false, chat: "77029", handle: "77029", name: null, text: "Your code is 483920" });
     const out = selectCodes([
       m,
@@ -2017,12 +2048,14 @@ describe("security codes: detect, hold once, never from a group", () => {
       msg({ ts: "2026-09-02T12:40:00Z", from_me: true, text: "my code is 222222" }),                 // outbound
       msg({ ts: "2026-09-02T12:45:00Z", from_me: false, chat: "e98633ecd4e84723b69d142cd721b2b9", text: "code 333333" }), // group
       msg({ ts: "2026-09-02T12:50:00Z", from_me: false, chat: "+15550001111", handle: "+15550001111", name: "Eli", text: "Enter passcode 444444" }),
-    ], WM, []);
+    ], WM, [], [], NOW);
     expect(out.map((c) => [c.code, c.name])).toEqual([["483920", "77029"], ["444444", "Eli"]]);
     expect(out.every((c) => c.key.startsWith("code:"))).toBe(true);
-    expect(selectCodes([m], WM, [out[0]!.key])).toEqual([]);           // the ring suppresses a repeat
-    expect(selectCodes([m], "", [])).toEqual([]);                        // never the first-run backlog
-    expect(selectCodes([m], WM, [], ["77029"])).toEqual([]);            // never the self-thread
+    expect(selectCodes([m], WM, [out[0]!.key], [], NOW)).toEqual([]);   // the ring suppresses a repeat
+    expect(selectCodes([m], "", [], [], NOW)).toEqual([]);               // never the first-run backlog
+    expect(selectCodes([m], WM, [], ["77029"], NOW)).toEqual([]);       // never the self-thread
+    // A long suspend: the message is past the five-minute life of a code, so nothing is offered.
+    expect(selectCodes([m], WM, [], [], NOW + 3 * 3600_000)).toEqual([]);
   });
 });
 

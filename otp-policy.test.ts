@@ -62,12 +62,15 @@ test("installed-version collector selects synthetic SMS/iMessage and preserves o
   for (const service of ["SMS", "iMessage"]) {
     const message = { id: "synthetic", ts: "2026-01-01 12:00:01", from_me: false,
       handle: "+15551234567", chat: "+15551234567", name: null, service, text: "Your verification code is 012345" };
-    const codes = selectCodes([message], "2026-01-01 12:00:00", []);
+    const at = Date.parse("2026-01-01 12:00:30");
+    const codes = selectCodes([message], "2026-01-01 12:00:00", [], [], at);
     expect(codes).toHaveLength(1);
+    // Hours later (a long suspend): the code is past its five minutes and is never offered.
+    expect(selectCodes([message], "2026-01-01 12:00:00", [], [], at + 3 * 3600_000)).toHaveLength(0);
     const s = setup(); s.state.focus(target()); s.state.publish({ ...codes[0], remainingMs: 300000 });
     expect(s.out.at(-1).type).toBe("offer");
-    expect(selectCodes([message], "2026-01-01 12:00:00", [codes[0]!.key])).toHaveLength(0);
-    expect(selectCodes([message], "", [])).toHaveLength(0);
+    expect(selectCodes([message], "2026-01-01 12:00:00", [codes[0]!.key], [], at)).toHaveLength(0);
+    expect(selectCodes([message], "", [], [], at)).toHaveLength(0);
   }
   expect(extractCode("Your security code for card 1234 is 987654")?.code).toBe("987654");
   expect(extractCode("Call +1 (555) 010-0199")).toBeNull();

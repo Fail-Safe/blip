@@ -79,6 +79,15 @@ if [[ "$tool" == imsg ]]; then
   case "${hide_spam,,}" in on|yes|true|1) imsg_flags+=(--hide-spam) ;; esac
   case "${hide_unknown,,}" in on|yes|true|1) imsg_flags+=(--hide-unknown) ;; esac
 fi
+# POSIX single-quote every argument. NOT `${*@Q}`: bash renders an argument with
+# a control character as $'a<TAB>b', which the Mac's shlex.split (blip-dispatch)
+# does not understand, so a file name with a tab or newline was garbled and one
+# that also held an apostrophe injected extra arguments into imsg-send.
+shq() {
+  local a out="" sq="'" esc="'\\''"
+  for a in "$@"; do out+=" '${a//$sq/$esc}'"; done
+  printf '%s' "${out# }"
+}
 if ((${#imsg_flags[@]})); then
   quoted_flags=" ${imsg_flags[*]@Q}"
 else
@@ -87,10 +96,10 @@ fi
 if [[ -r "$key" ]]; then
   ssh=(ssh -i "$key" -o IdentitiesOnly=yes -o ControlMaster=auto
        -o "ControlPath=$HOME/.ssh/cm-blip-%r@%h:%p" -o ControlPersist=10m)
-  remote="$tool$quoted_flags ${*@Q}"
+  remote="$tool$quoted_flags $(shq "$@")"
 else
   ssh=(ssh)
-  remote="PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool$quoted_flags ${*@Q}"
+  remote="PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool$quoted_flags $(shq "$@")"
 fi
 # NO PREFLIGHT PROBE. There used to be one, and it cost a full ssh round trip
 # plus a Python start on the Mac — 41 ms measured, on EVERY call, ~31% of a
@@ -104,7 +113,7 @@ fi
 # it ate stdin and silently emptied `imsg-send --file-stdin` payloads. No
 # probe, no trap — do not add one back.
 #
-# ${*@Q} quotes each argument for the remote side (dispatch shlex-splits it
+# shq() quotes each argument for the remote side (dispatch shlex-splits it
 # exactly like a shell): apostrophes, spaces, leading dashes survive intact.
 # Not exec: we need the exit code to translate it. stdio is inherited either
 # way, so attachment streaming and --file-stdin are untouched.
