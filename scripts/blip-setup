@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# blip-setup — Linux-side first run for Blip. Idempotent; safe to re-run.
+#
+#   blip-setup [user@]mac-host        # e.g. blip-setup you@mac-mini, or a Tailscale name
+#
+# Steps:
+#   1. ~/.config/blip/bridge.conf   host= (and remote_bin=, python=)
+#   2. ~/.ssh/config                 ControlMaster block for the host (47 ms warm
+#                                    round trips — Blip polls; this is required)
+#   3. ~/bin/{imsg,imsg-send,imsg-read,imsg-react,contacts,contact-save}  the bridge shim (existing
+#                                    files backed up; claude-on-mac remote shims are left
+#                                    alone), plus ~/bin/blip-bridged, the persistent-channel
+#                                    daemon the bar widget runs. bin_dir= in bridge.conf, or
+#                                    BLIP_BIN_DIR, installs them elsewhere
+#   4. Mac install                   copies bridge/mac to the Mac and runs
+#                                    install.sh there (needs ssh access already)
+#   5. smoke test                    imsg recent 1 through the shim
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+host="${1:-}"
+
+# 0. Linux prerequisites — say exactly what is missing instead of failing later
+# command → Arch package, so the pacman line names only what is missing.
+declare -A pkg_for=([ssh]=openssh [scp]=openssh [bun]=bun [jq]=jq [notify-send]=libnotify [wl-copy]=wl-clipboard [xdg-open]=xdg-utils)
+missing=(); pkgs=()
+for dep in ssh scp bun jq notify-send wl-copy xdg-open; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    missing+=("$dep")
+    [[ " ${pkgs[*]} " == *" ${pkg_for[$dep]} "* ]] || pkgs+=("${pkg_for[$dep]}")
+  fi
+done
+if (( ${#missing[@]} )); then
+  echo "✗ missing on this machine: ${missing[*]}" >&2
+  echo "  sudo pacman -S --needed ${pkgs[*]}   (Omarchy/Arch names), then re-run blip-setup" >&2
+  exit 69
+fi
+echo "✓ Linux prerequisites present (ssh scp bun jq notify-send wl-copy xdg-open)"
+# Optional: voice messages. iPhone voice notes are CAF; ffmpeg turns them into
+# Ogg and mpv plays them without a window. Blip works without either, a voice
+# message just will not play.
+optional=()
+for dep in ffmpeg mpv; do command -v "$dep" >/dev/null 2>&1 || optional+=("$dep"); done
+if (( ${#optional[@]} )); then
+  echo "• optional, for voice messages: sudo pacman -S --needed ${optional[*]}"
+fi
+conf_dir="$HOME/.config/blip"
+conf="$conf_dir/bridge.conf"
+
+# bridge.conf is DATA (audit #7): read the two keys we care about, never source it.
+prev_automation=""; prev_country=""; prev_bin_dir=""
+if [[ -r "$conf" ]]; then
+  # tr has no \xHH hex escapes: `tr -d '"\x27 '` deletes the literal characters
+  # ", \, x, 2, 7 and space, which turned host=chadhs@192.168.110.106 into
+  # chadhs@19.168.110.106 and rewrote the mangled value back into bridge.conf.
+  # \047 is the apostrophe in tr's octal form; the set here is ", ', and space.
+  [[ -z "$host" ]] && host="$(sed -n 's/^host=//p' "$conf" | head -1 | tr -d '"\047 ')"
+  prev_automation="$(sed -n 's/^automation=//p' "$conf" | head -1 | tr -d '"\047 ')"
+  prev_country="$(sed -n 's/^country_code=//p' "$conf" | head -1 | tr -d '"\047 ')"
+  prev_bin_dir="$(sed -n 's/^[[:space:]]*bin_dir[[:space:]]*=//p' "$conf" | head -1 | tr -d '"\047 ')"
+fi
+# Where the shims go. Same rules as bin-dir.ts, so Blip looks where we install:
+# ~ and $HOME expand here; anything but a plain absolute path means ~/bin.
+bin_dir="${BLIP_BIN_DIR:-${prev_bin_dir:-}}"
+case "$bin_dir" in
+  \~|'$HOME'|'${HOME}') bin_dir="$HOME" ;;
+  \~/*) bin_dir="$HOME/${bin_dir#\~/}" ;;
+  '$HOME/'*) bin_dir="$HOME/${bin_dir#'$HOME/'}" ;;
+  '${HOME}/'*) bin_dir="$HOME/${bin_dir#'${HOME}/'}" ;;
+esac
+while [[ "$bin_dir" == */ ]]; do bin_dir="${bin_dir%/}"; done
+if [[ -z "$bin_dir" ]] || ! [[ "$bin_dir" =~ ^/[A-Za-z0-9._/-]+$ ]] || [[ "/$bin_dir/" == */../* ]]; then
+  [[ -n "$bin_dir" ]] && echo "• bin_dir '$bin_dir' is not a plain absolute path — using ~/bin" >&2
+  bin_dir="$HOME/bin"
+fi
+if [[ -z "${host:-}" ]]; then
+  read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
+fi
+[[ -n "$host" ]] || { echo "no host given" >&2; exit 64; }
+# Neither part may start with "-": `host=-Fssh_config` used to reach ssh as an
+# OPTION and pull a ProxyCommand out of an attacker's file (Astra D#1).
+if ! [[ "$host" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+  echo "✗ '$host' is not a [user@]hostname — no spaces, quotes, or shell characters" >&2; exit 64
+fi
+
+# 1. config. Keys the installer does not own — push_read, link_previews,
+# spell, otp_autofill, ui_font, ui_font_size, anything set by hand — must survive
+# a re-run; a wholesale rewrite silently re-enabled what the user had turned off (Astra #18).
+kept=""
+[[ -r "$conf" ]] && kept="$(grep -vE '^[[:space:]]*(#|$|host=|remote_bin=|python=|key=|automation=|country_code=|bin_dir[[:space:]]*=)' "$conf" || true)"
+mkdir -p "$conf_dir"
+{
+  echo "# Blip bridge — read (never sourced) by the imsg, imsg-send, imsg-read, imsg-react, contacts, contact-save shims"
+  echo "host=$host"
+  echo "# single-quoted on purpose: expanded on the MAC, not here"
+  echo "remote_bin='\$HOME/.blip/bin'"
+  echo "python=python3"
+  echo "key=$HOME/.ssh/blip_ed25519"
+  echo "# on = local scripts may send/read through 'qs ipc call nixfred.blip …'"
+  echo "automation=${BLIP_AUTOMATION:-${prev_automation:-off}}"   # a re-run keeps a hand-set value
+  echo "# country calling code for numbers typed without one (1 = US/Canada, 44 = UK, 49 = DE…)"
+  echo "country_code=${prev_country:-1}"
+  if [[ "$bin_dir" != "$HOME/bin" ]]; then
+    echo "# where the Linux-side shims live (default ~/bin)"
+    echo "bin_dir=$bin_dir"
+  fi
+  if [[ -n "$kept" ]]; then echo "# kept from the previous bridge.conf"; printf '%s\n' "$kept"; fi
+} > "$conf"
+chmod 0600 "$conf"
+echo "✓ $conf"
+
+# 2. ssh ControlMaster (append a block only if this host has none)
+mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+sshcfg="$HOME/.ssh/config"
+touch "$sshcfg"
+hostname_only="${host##*@}"
+if ! grep -qE "^Host[[:space:]]+.*\b${hostname_only}\b" "$sshcfg"; then
+  cat >> "$sshcfg" <<EOF
+
+# blip-setup: multiplexed sessions so Blip's polling costs ~50 ms, not a handshake
+Host $hostname_only
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h:%p
+  ControlPersist 10m
+  ServerAliveInterval 30
+EOF
+  echo "✓ ssh ControlMaster block added for $hostname_only"
+else
+  echo "• ssh config already has a Host block for $hostname_only — left as is (make sure ControlMaster auto is on)"
+fi
+
+# 3. shims
+mkdir -p "$bin_dir"
+for t in imsg imsg-send imsg-read imsg-react contacts contact-save; do
+  target="$bin_dir/$t"
+  if [[ -e "$target" && ! -L "$target" ]] && ! grep -q "blip-shim" "$target" 2>/dev/null; then
+    cp -p "$target" "$target.pre-blip.$(date +%s)"
+    echo "• backed up existing $target"
+  fi
+  install -m 0755 "$here/bridge/linux/blip-shim" "$target"
+done
+install -m 0755 "$here/bridge/linux/blip-bridged" "$bin_dir/blip-bridged"
+echo "✓ shims installed in $bin_dir: imsg imsg-send imsg-read imsg-react contacts contact-save blip-bridged"
+echo "• Save contact helpers are included. Mac permission guide: $here/docs/SAVE-CONTACT.md"
+# blip-bridged holds `imsg serve` channels open so a query costs the query
+# instead of ~90 ms of ssh + two Python starts + opening a 218 MB chat.db.
+# The bar widget starts it. It needs socat to be reachable from the plugin;
+# without socat Blip simply keeps using the one-shot path, so this is a note,
+# never a failure.
+if ! command -v socat >/dev/null 2>&1; then
+  echo "• socat not found — Blip will work, but every query pays ~90 ms of startup."
+  echo "  Install it for the fast path:  pacman -S socat"
+fi
+
+# The from= option for the Blip key's authorized_keys line. $1 = the address
+# this machine reached the Mac from. Over Tailscale that address is a stable
+# per-node identity, so the key is pinned to it — to BOTH of this node's
+# addresses when tailscale is here, since MagicDNS hands out either family.
+# Any other address (a LAN, DHCP) prints nothing: an unpinned key beats a
+# stranded one, and docs/SECURITY.md shows the one-line manual pin.
+blip_key_from() {
+  local seen="$1" v="" second
+  case "$seen" in
+    100.*) second="${seen#100.}"; second="${second%%.*}"
+           [[ "$second" =~ ^[0-9]+$ ]] && (( second >= 64 && second <= 127 )) && v="$seen" ;;   # 100.64.0.0/10
+    fd7a:115c:a1e0:*) v="$seen" ;;                                                            # Tailscale IPv6
+  esac
+  [[ -n "$v" ]] || return 0
+  if command -v tailscale >/dev/null 2>&1; then
+    local ips; ips="$(tailscale ip 2>/dev/null | paste -sd, -)"
+    case ",$ips," in *",$seen,"*) v="$ips" ;; esac
+  fi
+  [[ "$v" =~ ^[0-9A-Fa-f.:,]+$ ]] || return 0
+  printf 'from="%s",' "$v"
+}
+
+# 4. Mac install (needs ssh to already work — key-based)
+if ssh -n -o ConnectTimeout=6 -o BatchMode=yes -- "$host" true 2>/dev/null; then
+  ssh -n -- "$host" 'mkdir -p ~/.blip/src'
+  # Regular files only: `bridge/mac/*` also matches __pycache__ once anyone has
+  # run the Mac tests, and scp without -r exits 1 on a directory — under set -e
+  # that aborted setup here, before install.sh ran, leaving the old tools.
+  find "$here/bridge/mac" -maxdepth 1 -type f -print0 | xargs -0 -I{} scp -q {} "$host:~/.blip/src/"
+  ssh -n -- "$host" 'bash ~/.blip/src/install.sh --no-check'   # the check runs below, after the "be at the Mac" pause
+
+  # python3 on a fresh Mac is a Command Line Tools STUB that exits 1 (and may
+  # pop an install dialog). Every bridge tool needs the real thing; say so
+  # here instead of letting the key-confinement check misdiagnose it.
+  if ! ssh -n "$host" "python3 -c 'import sqlite3, subprocess'" >/dev/null 2>&1; then
+    echo "✗ python3 on $host cannot run: install Xcode Command Line Tools there —  xcode-select --install  — then re-run blip-setup" >&2
+    exit 1
+  fi
+
+  # 4b. Dedicated key, confined on the Mac to blip-dispatch (restrict = no
+  # shell, no forwarding, no pty) and, over Tailscale, pinned to this
+  # machine's addresses (from=): sshd refuses it from anywhere else, even
+  # with the private key in hand. A re-run REPLACES the key's line, so a
+  # changed address is one re-run away. Your everyday key is untouched.
+  key="$HOME/.ssh/blip_ed25519"
+  [[ -f "$key" ]] || ssh-keygen -q -t ed25519 -N "" -C "blip@${HOSTNAME:-$(uname -n)}" -f "$key"
+  pub="$(cut -d" " -f1,2 < "$key.pub")"
+  seen="$(ssh -n -- "$host" 'printf %s "${SSH_CONNECTION%% *}"')"
+  from_opt="$(blip_key_from "$seen")"
+  ssh -n "$host" "umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; \
+    grep -vF -- '$pub' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.blip.tmp || true; \
+    printf '%s\n' '${from_opt}restrict,command=\"\$HOME/.blip/bin/blip-dispatch\" $pub' >> ~/.ssh/authorized_keys.blip.tmp; \
+    mv ~/.ssh/authorized_keys.blip.tmp ~/.ssh/authorized_keys"
+  if [[ "$(ssh -n -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ControlPath=none "$host" ping 2>/dev/null)" == pong ]] \
+     && ! ssh -n -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ControlPath=none "$host" true >/dev/null 2>&1; then
+    if [[ -n "$from_opt" ]]; then
+      from_list="${from_opt#from=\"}"; from_list="${from_list%\",}"
+      echo "✓ dedicated key enrolled: $key can run only the Blip tools on $host, and only from ${from_list//,/ and }"
+    else echo "✓ dedicated key enrolled: $key can run only the Blip tools on $host (not pinned to an address: $host is not reached over Tailscale — docs/SECURITY.md shows the manual pin)"; fi
+  else
+    echo "✗ dedicated key did not confine as expected — check ~/.ssh/authorized_keys on the Mac" >&2; exit 1
+  fi
+
+  # The three grants, checked in the ssh context that matters. The automation
+  # check TALKS to Messages.app, which pops the one-time Allow prompt on the
+  # Mac's screen when the grant is missing — so give the user a beat to click.
+  # The prompt expires in about two minutes and an EXPIRED prompt is recorded
+  # as a denial that macOS 26's Settings switch may then refuse to flip (#36):
+  # say so before it fires, not after.
+  echo
+  echo "Next: the Mac will ask, ON ITS OWN SCREEN, whether sshd may control Messages."
+  echo "  Be at the Mac (or in Screen Sharing) and click Allow within two minutes — an"
+  echo "  unanswered prompt is recorded as a denial. Ready?"
+  read -r -p "  Press Enter to run the permission check: " _
+  granted=0
+  for attempt in 1 2 3; do
+    echo; echo "Checking Mac permissions (attempt $attempt)…"
+    # a grant applies to NEW sessions: drop the multiplexed master so the re-check sees it
+    ssh -O exit "$host" </dev/null >/dev/null 2>&1 || true
+    if ssh -n -- "$host" 'python3 "$HOME/.blip/bin/blip-check"'; then granted=1; break; fi
+    if [[ $attempt -lt 3 ]]; then
+      read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _
+    fi
+  done
+  if [[ $granted != 1 ]]; then
+    # Reading chat.db works without the Automation grant, so the smoke test
+    # below would have said "bridge is up" over a Mac that cannot send (Astra #19).
+    echo "✗ The Mac is still missing a permission after 3 checks. Blip can read but cannot send until it is granted." >&2
+    echo "  Fix it on the Mac, then re-run blip-setup — or check any time with: ssh $host 'python3 \"\$HOME/.blip/bin/blip-check\"'" >&2
+    exit 1
+  fi
+else
+  echo "✗ cannot ssh to $host non-interactively yet. Set up key auth (ssh-copy-id $host), then re-run blip-setup." >&2
+  echo "  On the Mac, you can also run the installer by hand:" >&2
+  echo "    scp -r $here/bridge/mac $host:~/.blip/src && ssh $host bash ~/.blip/src/install.sh" >&2
+  exit 69
+fi
+
+# 5. smoke test (through the shim, i.e. the dedicated key)
+echo
+# Content-free on purpose: a message body echoed raw into a terminal is an
+# escape-sequence injection vector (audit / war room #53) and a shoulder-surf.
+# stdin closed: the shim's ssh keeps stdin open for sends, and here it swallowed
+# the answers still queued for the prompts below (a piped or agent-run install
+# then hit EOF at the font question and exited 1 after everything worked).
+if out="$("$bin_dir/imsg" --json recent 1 2>&1 </dev/null)"; then
+  n="$(printf '%s' "$out" | jq -r 'length' 2>/dev/null || echo "?")"
+  echo "✓ bridge is up — $n message(s) readable through the shim"
+  echo
+  # 6. the UI font. Blip renders in SF Pro when the machine has it, else Inter,
+  # else the Omarchy theme font. We install Inter (OFL, in Arch's `extra`) and
+  # only POINT AT Apple for SF Pro: its licence forbids redistribution, so the
+  # font is never carried in this repo and never fetched by us.
+  if fc-list : family 2>/dev/null | grep -qiE '(^|,)[[:space:]]*(SF Pro Text|SF Pro Display|Inter)[[:space:]]*($|,)'; then
+    echo "✓ UI font present — Blip will render like Messages rather than in the theme's monospace"
+  else
+    echo "Blip looks most like Messages in a UI sans. Omarchy's font is monospace."
+    echo "  Inter  — open licence, drawn for interfaces:  sudo pacman -S --needed inter-font"
+    echo "           https://github.com/rsms/inter"
+    echo "  SF Pro — Apple's own, what Messages uses; download it from Apple:"
+    echo "           https://developer.apple.com/fonts/   (AUR: otf-san-francisco fetches it for you)"
+    echo "  Neither is required, and Blip ships no fonts. Set ui_font=theme in bridge.conf to always"
+    echo "  use the Omarchy family."
+    if command -v pacman >/dev/null 2>&1; then
+      read -r -p "Install Inter now with pacman? [y/N] " ans || ans=""   # no answer (EOF) = no
+      case "$ans" in
+        [Yy]*) sudo pacman -S --needed --noconfirm inter-font && echo "✓ Inter installed" || echo "  (skipped — install it yourself later)" ;;
+        *) echo "  (skipped)" ;;
+      esac
+    fi
+    echo
+  fi
+  echo "Next: restart the Omarchy shell (omarchy-restart-shell). Toasts are allowlist-only:"
+  echo "  ~/.config/blip/allowlist.json  →  { \"allow\": [\"+15551234567\"] }"
+else
+  echo "✗ imsg failed through the bridge:"; echo "  $out"
+  echo "  Usually a missing Full Disk Access grant on the Mac — see install.sh's notes, then re-run."
+  exit 1
+fi

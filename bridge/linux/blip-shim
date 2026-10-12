@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# blip-shim — the Linux side of Blip's Mac bridge. blip-setup installs it as
+# imsg, imsg-send, imsg-read, imsg-react, contacts, and contact-save. It
+# dispatches on its own basename and execs the matching Mac tool over ssh.
+#
+# iMessage is macOS-only: chat.db is TCC-protected and AppleScript send needs
+# Messages.app, so every query and send proxies to the Mac. sshd on macOS
+# inherits Full Disk Access + Automation consent (cron does not), which is
+# what makes a plain ssh session a working transport.
+#
+# Config: ~/.config/blip/bridge.conf (written by scripts/blip-setup), parsed
+# key=value — keys: host (ssh target), key (dedicated identity, default
+# ~/.ssh/blip_ed25519; absent → general ssh), remote_bin (dir on the Mac
+# holding the tools; default ~/.blip/bin), python (default python3),
+# automation (on|off — read by the plugin, not the shim), hide_spam /
+# hide_unknown (on|off — injected as imsg flags; default off), tapbacks
+# (on|off — imsg-react is refused unless on; default off).
+#
+# There is deliberately NO connectivity probe — see the note above the ssh
+# call at the bottom. The old one cost 41 ms on every call and had to be
+# `ssh -n` or it ate stdin and silently emptied --file-stdin payloads.
+set -euo pipefail
+
+CONF="${BLIP_BRIDGE_CONF:-$HOME/.config/blip/bridge.conf}"
+# remote_bin is expanded by the MAC's shell, so keep it literal here — a bare
+# ~ or $HOME in bridge.conf would expand to the Linux home (it did).
+host=""; remote_bin='$HOME/.blip/bin'; python="python3"; key="$HOME/.ssh/blip_ed25519"
+hide_spam=""; hide_unknown=""; tapbacks=""
+# Parsed, not sourced: the file is data. Known keys only, quotes stripped.
+if [[ -r "$CONF" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"; line="${line//[[:space:]]/}"
+    [[ "$line" == *=* ]] || continue
+    k="${line%%=*}"; v="${line#*=}"
+    v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+    case "$k" in
+      host) host="$v" ;;
+      remote_bin) remote_bin="$v" ;;
+      python) python="$v" ;;
+      key) key="$v" ;;
+      hide_spam) hide_spam="$v" ;;
+      hide_unknown) hide_unknown="$v" ;;
+      tapbacks) tapbacks="$v" ;;
+    esac
+  done < "$CONF"
+fi
+host="${BLIP_MAC_HOST:-$host}"
+if [[ -z "$host" ]]; then
+  echo "blip: no Mac configured — run blip-setup (or set host= in $CONF)" >&2
+  exit 78   # EX_CONFIG
+fi
+if ! [[ "$host" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]]; then
+  echo "blip: refusing host '$host' — expected [user@]hostname" >&2; exit 78
+fi
+if ! [[ "$python" =~ ^[A-Za-z0-9._/-]+$ && "$remote_bin" =~ ^[A-Za-z0-9._/\$-]+$ && "$key" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  echo "blip: refusing python/remote_bin in $CONF — plain paths only" >&2; exit 78
+fi
+
+tool="$(basename "$0")"
+case "$tool" in
+  imsg|imsg-send|imsg-read|imsg-react|contacts|contact-save|tcc-check|blip-check) ;;
+  *) echo "blip-shim: unknown tool name '$tool' (install as imsg, imsg-send, imsg-read, imsg-react, contacts, or contact-save)" >&2; exit 64 ;;
+esac
+# Tapbacks drive Messages' own buttons through Accessibility, by names Apple
+# localizes and may rename: opt-in, refused before anything reaches the Mac.
+if [[ "$tool" == imsg-react ]]; then
+  case "${tapbacks,,}" in
+    on|yes|true|1) ;;
+    *) echo "imsg-react: tapbacks are off — set tapbacks=on in $CONF to enable" >&2; exit 78 ;;
+  esac
+fi
+
+# With the dedicated key (blip-setup enrolls it as restrict,command=blip-dispatch)
+# the Mac side can ONLY run the bridge tools, so the remote command is bare.
+# The key gets its own ControlMaster socket: sharing the general key's master
+# would silently bypass the forced command.
+imsg_flags=()
+if [[ "$tool" == imsg ]]; then
+  case "${hide_spam,,}" in on|yes|true|1) imsg_flags+=(--hide-spam) ;; esac
+  case "${hide_unknown,,}" in on|yes|true|1) imsg_flags+=(--hide-unknown) ;; esac
+fi
+if ((${#imsg_flags[@]})); then
+  quoted_flags=" ${imsg_flags[*]@Q}"
+else
+  quoted_flags=""
+fi
+if [[ -r "$key" ]]; then
+  ssh=(ssh -i "$key" -o IdentitiesOnly=yes -o ControlMaster=auto
+       -o "ControlPath=$HOME/.ssh/cm-blip-%r@%h:%p" -o ControlPersist=10m)
+  remote="$tool$quoted_flags ${*@Q}"
+else
+  ssh=(ssh)
+  remote="PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool$quoted_flags ${*@Q}"
+fi
+# NO PREFLIGHT PROBE. There used to be one, and it cost a full ssh round trip
+# plus a Python start on the Mac — 41 ms measured, on EVERY call, ~31% of a
+# 133 ms query — purely to turn a transport failure into a friendlier message.
+# ssh already reports that itself as 255, and every caller in Blip treats 255
+# exactly like 69 (collector, thread, fetch, avatar, search, send-file,
+# contact-search), so the real call carries the news at no cost. We still
+# translate it, so the documented 69 contract is unchanged.
+#
+# This also retires the old "the probe MUST be ssh -n" trap: a probe without
+# it ate stdin and silently emptied `imsg-send --file-stdin` payloads. No
+# probe, no trap — do not add one back.
+#
+# ${*@Q} quotes each argument for the remote side (dispatch shlex-splits it
+# exactly like a shell): apostrophes, spaces, leading dashes survive intact.
+# Not exec: we need the exit code to translate it. stdio is inherited either
+# way, so attachment streaming and --file-stdin are untouched.
+set +e
+"${ssh[@]}" -o ConnectTimeout=5 -o BatchMode=yes -- "$host" "$remote"
+rc=$?
+set -e
+if (( rc == 255 )); then
+  # ssh has already printed its own reason (auth, host key, dispatch refusal)
+  # on stderr, which is more than the probe's one-line tail ever carried.
+  echo "$tool: $host unreachable — the iMessage bridge is offline." >&2
+  exit 69   # EX_UNAVAILABLE (Blip greys out on this code)
+fi
+exit "$rc"
