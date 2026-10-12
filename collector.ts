@@ -191,6 +191,13 @@ export interface BlipState {
   /** Chat ids whose Messages "Hide Alerts" flag was on at the last full chat
    *  list. Ids only. Shallow polls keep this so a muted chat stays quiet. */
   alertsOff: string[];
+  /** Chats the mute list silenced when a message of theirs was last in view,
+   *  with the fingerprint of the list that decided it. Ids only. Without it a
+   *  phrase-muted chat is muted only while one of its rows sits in the preview
+   *  window, and the Mac's unread snapshot (which knows no phrases) badged it
+   *  again whenever the window moved on. Ignored when the list has changed. */
+  mutedChats?: string[];
+  muteKey?: string;
   toasted: string[];   // recent opaque sha256 keys; never message content
 }
 
@@ -317,6 +324,10 @@ export function loadState(path = STATE_PATH): BlipState {
       alertsOff: Array.isArray(s.alertsOff)
         ? s.alertsOff.filter((id: unknown): id is string => typeof id === "string" && id.length > 0 && id.length <= 512).slice(0, 4000)
         : [],
+      mutedChats: Array.isArray(s.mutedChats)
+        ? s.mutedChats.filter((id: unknown): id is string => typeof id === "string" && id.length > 0 && id.length <= 512).slice(0, 4000)
+        : [],
+      muteKey: typeof s.muteKey === "string" ? s.muteKey : "",
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
@@ -841,6 +852,24 @@ export function mutedChats(msgs: ImsgMessage[], mute: string[]): string[] {
   return [...out];
 }
 
+/**
+ * Muted once, muted until the list changes. A phrase mute is only visible on a
+ * row, and the row may have left the preview window (or sit in a catch-up fetch
+ * that does not repeat), so what was found muted is remembered across polls,
+ * under the fingerprint of the list that decided it. Without this the Mac's
+ * unread snapshot, which knows no phrases, badged a muted blast whenever its
+ * rows were out of view and the next catch-up cleared it again.
+ */
+export function resolveMuted(
+  msgs: ImsgMessage[],
+  mute: string[],
+  prev: Pick<BlipState, "mutedChats" | "muteKey">,
+): { muted: string[]; muteKey: string } {
+  const muteKey = mute.length === 0 ? "" : digest(JSON.stringify(mute));
+  const known = muteKey !== "" && prev.muteKey === muteKey ? (prev.mutedChats ?? []) : [];
+  return { muted: [...new Set([...mutedChats(msgs, mute), ...known])], muteKey };
+}
+
 /** Drop muted conversations before anything is counted. Filtering here rather
  *  than in the QML is the point: a muted blast never reaches the unread
  *  ledger, the thread list, or a toast, so it cannot badge the bar either. */
@@ -961,6 +990,9 @@ export function selectIncomingLinks(
   for (const m of msgs) {
     if (m.from_me) continue;
     if (m.ts <= watermark) continue;
+    // Read on the iPhone already (see selectToasts, #89): after a suspend the
+    // watermark is hours old, and a read link must not open the share sheet on wake.
+    if (m.read === true) continue;
     const chat = chatKey(m);
     if (self.has(chat)) continue;
     const urls = allUrls(m.text);
@@ -1038,11 +1070,17 @@ export function extractCode(text: string | null | undefined): { code: string; do
  * persisted `code:` ring. Never a group — nobody's 2FA arrives in one, and a
  * friend quoting a code must not be typed into your login form.
  */
+/** A code is offered for five minutes, so a message older than that is not offered
+ *  at all: after a suspend the watermark is hours old, and BarWidget starts the
+ *  five-minute timer when the poll lands, not when the code was sent. */
+export const CODE_MAX_AGE_MS = 5 * 60 * 1000;
+
 export function selectCodes(
   msgs: ImsgMessage[],
   watermark: string,
   toasted: string[],
   selfChats: string[] = [],
+  now: number = Date.now(),
 ): SecurityCode[] {
   if (!watermark) return [];
   const seen = new Set(toasted);
@@ -1051,6 +1089,8 @@ export function selectCodes(
   for (const m of msgs) {
     if (m.from_me || m.tapback === true) continue;
     if (m.ts <= watermark) continue;
+    const sent = Date.parse(m.ts);
+    if (Number.isFinite(sent) && now - sent > CODE_MAX_AGE_MS) continue;
     const chat = chatKey(m);
     if (self.has(chat) || isGroupChat(chat)) continue;
     const found = extractCode(m.text);
@@ -2354,7 +2394,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // older than the watermark by construction, and a message that scrolled out
   // of the window months ago must not toast now.
   const deduped = dedupeSelfEcho(caughtUp, selfChats);
-  const muted = mutedChats(deduped, mute);
+  const { muted, muteKey } = resolveMuted(deduped, mute, state);
   const msgs = dropMuted(deduped, muted);
   let exactCounts = unreadCounts(msgs, state.readMark, readMarks, selfChats, unreadSince);
   let exactOldest = unreadOldest(msgs, state.readMark, readMarks, selfChats, unreadSince);
@@ -2522,6 +2562,8 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     chatAliases,
     pins,
     alertsOff,
+    mutedChats: muted.slice(0, 4000),
+    muteKey,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key), ...codes.map((c) => c.key)],
   };

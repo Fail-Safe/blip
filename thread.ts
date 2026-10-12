@@ -396,8 +396,10 @@ export function linkify(text: string): string {
 /** A send older than this without a row is given up on (never marked failed:
  *  imsg-send exited 0, so it most likely went; the next real reload shows it). */
 export const PENDING_MAX_AGE_MS = 2 * 60 * 1000;
-/** A real row may carry a Mac timestamp a little BEHIND the Linux clock. */
-const PENDING_SKEW_MS = 5 * 60 * 1000;
+/** A real row may carry a Mac timestamp a little BEHIND the Linux clock. Kept
+ *  to the pending lifetime: at 5 minutes an earlier identical "ok" from the
+ *  same conversation resolved a fresh send and made it look lost. */
+const PENDING_SKEW_MS = PENDING_MAX_AGE_MS;
 
 /** The bubble for a send in flight, decorated against the bubble before it
  *  the way decorate() would: same run when it follows one of yours within

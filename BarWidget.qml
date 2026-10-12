@@ -725,7 +725,11 @@ BarWidget {
     // this is mostly the crash path. Slow enough not to spin if the binary is
     // missing entirely (a setup that never installed it).
     interval: 30000
-    onTriggered: if (root.leader && root.bridgeConfLoaded) bridgeProc.running = true
+    // Restore the BINDING, never a bare `true` (see watchRestart): a plain
+    // assignment replaces `running: leader && bridgeConfLoaded` for the life of
+    // the process, so a daemon restarted after a crash outlived losing leadership.
+    onTriggered: if (root.leader && root.bridgeConfLoaded)
+      bridgeProc.running = Qt.binding(function() { return root.leader && root.bridgeConfLoaded })
   }
 
   // ------------------------------------------------- real-time push
@@ -806,7 +810,7 @@ BarWidget {
     // watcher was correctly killed by the leader gate restarted itself one
     // backoff later and then watched, refreshed and toasted forever — one
     // duplicate desktop notification per extra screen.
-    onTriggered: watchProc.running = Qt.binding(function() { return root.leader })
+    onTriggered: watchProc.running = Qt.binding(function() { return root.leader && root.bridgeConfLoaded })
   }
 
   // ------------------------------------------------------------ toasts
@@ -822,8 +826,10 @@ BarWidget {
       onStreamFinished: {
         var action = text.trim()
         if (action === "default" && notifyProc.toastCode !== "") { root.copyCode(notifyProc.toastCode); return }
+        // Bare digits: show() refuses a leading "+" (qs ipc takes it as a flag)
+        // and adds it back itself. Opening the panel is the floor when it declines.
         if ((action === "default" || action === "reply") && notifyProc.toastChat !== "")
-          root.show(notifyProc.toastChat)
+          if (!root.show(notifyProc.toastChat.replace(/^\+/, ""))) root.open()
       }
     }
     property string toastChat: ""

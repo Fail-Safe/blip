@@ -683,6 +683,14 @@ describe("pending sends (the bubble drawn before the Mac writes the row)", () =>
     expect(r.pending).toEqual([]);
   });
 
+  test("an identical message three minutes earlier does not resolve a repeated send", () => {
+    const earlier = real({ text: "see you soon", ts: "2026-08-30T11:57:00Z" });
+    const r = withPendingSends([earlier], [send()], today, DEFAULT_FORMATS, now);
+    expect(r.bubbles).toHaveLength(2);
+    expect(r.bubbles[1]!.pending).toBe(true);
+    expect(r.pending).toEqual([send()]);
+  });
+
   test("a send two minutes old without a row is given up on, quietly", () => {
     const stale = send({ ts: "2026-08-30T11:58:00Z" });
     const r = withPendingSends([real()], [stale], today, DEFAULT_FORMATS, now);

@@ -74,7 +74,7 @@ if [[ -z "$bin_dir" ]] || ! [[ "$bin_dir" =~ ^/[A-Za-z0-9._/-]+$ ]] || [[ "/$bin
   bin_dir="$HOME/bin"
 fi
 if [[ -z "${host:-}" ]]; then
-  read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
+  read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host || host=""   # EOF falls through to "no host given"
 fi
 [[ -n "$host" ]] || { echo "no host given" >&2; exit 64; }
 # Neither part may start with "-": `host=-Fssh_config` used to reach ssh as an
@@ -225,7 +225,13 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes -- "$host" true 2>/dev/null; then
   echo "Next: the Mac will ask, ON ITS OWN SCREEN, whether sshd may control Messages."
   echo "  Be at the Mac (or in Screen Sharing) and click Allow within two minutes — an"
   echo "  unanswered prompt is recorded as a denial. Ready?"
-  read -r -p "  Press Enter to run the permission check: " _
+  # No terminal (EOF) means nobody is at the Mac to click Allow, and an unanswered
+  # Automation prompt is recorded as a DENIAL. Stop with a reason, never run it.
+  read -r -p "  Press Enter to run the permission check: " _ || {
+    echo "✗ No terminal to confirm on, so the permission check was NOT run (an unanswered Allow prompt counts as a denial)." >&2
+    echo "  The key is enrolled. Re-run blip-setup from an interactive shell, with someone at the Mac." >&2
+    exit 1
+  }
   granted=0
   for attempt in 1 2 3; do
     echo; echo "Checking Mac permissions (attempt $attempt)…"
@@ -233,7 +239,7 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes -- "$host" true 2>/dev/null; then
     ssh -O exit "$host" </dev/null >/dev/null 2>&1 || true
     if ssh -n -- "$host" 'python3 "$HOME/.blip/bin/blip-check"'; then granted=1; break; fi
     if [[ $attempt -lt 3 ]]; then
-      read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _
+      read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _ || break   # EOF: stop re-checking, report below
     fi
   done
   if [[ $granted != 1 ]]; then

@@ -893,7 +893,7 @@ test("the watch restart restores the leader binding, never a bare true", () => {
   expect(widget).not.toMatch(/watchProc\.running\s*=\s*true\b/);
   const restart = widget.slice(widget.indexOf("id: watchRestart"),
                                widget.indexOf("// ---", widget.indexOf("id: watchRestart")));
-  expect(restart).toMatch(/running\s*=\s*Qt\.binding\(function\s*\(\)\s*\{\s*return root\.leader\s*\}\)/);
+  expect(restart).toMatch(/running\s*=\s*Qt\.binding\(function\s*\(\)\s*\{\s*return root\.leader( && root\.bridgeConfLoaded)?\s*\}\)/);
 });
 
 // A URL out of a message is message content: stdin to the preview fetcher, never argv.
@@ -1175,4 +1175,22 @@ describe("the accelerator channel is an optimisation, never a dependency", () =>
     expect(proc).toContain("running: root.leader && root.bridgeConfLoaded");
     expect(proc).toContain("onExited: bridgeRestart.restart()");
   });
+});
+
+// Same trap as watchRestart: `bridgeProc.running = true` replaced
+// `running: root.leader && root.bridgeConfLoaded` after the first crash, so a bar
+// that lost leadership kept its imsg serve channels and the new leader opened a
+// second pair.
+test("the bridge restart restores the leader binding, never a bare true", () => {
+  expect(widget).not.toMatch(/bridgeProc\.running\s*=\s*true\b/);
+  const restart = widget.slice(widget.indexOf("id: bridgeRestart"),
+                               widget.indexOf("// ---", widget.indexOf("id: bridgeRestart")));
+  expect(restart).toMatch(/running\s*=\s*Qt\.binding\(function\s*\(\)\s*\{\s*return root\.leader && root\.bridgeConfLoaded\s*\}\)/);
+});
+
+// show() refuses a leading "+" (qs ipc reads it as a flag), so the toast click
+// has to hand it the bare digits and fall back to opening the panel; otherwise a
+// click on a phone-number conversation closed the toast having done nothing.
+test("a toast click strips the + and falls back to open()", () => {
+  expect(widget).toMatch(/root\.show\(notifyProc\.toastChat\.replace\(\/\^\\\+\/, ""\)\)\) root\.open\(\)/);
 });

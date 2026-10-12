@@ -45,6 +45,10 @@ LAST X POST: CONTRIBUTORS-X-POST.md (2026-09-11). Everything below the
 marker for Post 2 is in the Post 2 draft in X-POSTS.md.
 ------------------------------------------------------------------------
 
+2026-10-12  #141 Seven fixes from a whole-project review: a muted chat stays out of the badge when its rows leave the window,
+                 old codes and already-read links are not offered after a long sleep, a repeated "ok" is not resolved by the earlier
+                 one, file names with a tab or newline reach the Mac intact, blip-setup stops cleanly with no terminal, and a toast
+                 click on a phone-number chat opens it. Larry & Fred, github.com/nixfred, X https://x.com/nixfred
 2026-10-07  #139 A tapback failure is shown even if Blip closed while it ran (the run lives in the bar widget); on macOS 27 an
                  older message is refused before Messages comes forward. Ian Swope, github.com/ianswope, X https://x.com/ianfs
 2026-10-07  #138 Tapbacks work on a macOS 27 gateway: consent asked of macOS without a prompt (no TCC.db there), the
