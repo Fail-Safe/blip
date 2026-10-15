@@ -1194,3 +1194,23 @@ test("the bridge restart restores the leader binding, never a bare true", () => 
 test("a toast click strips the + and falls back to open()", () => {
   expect(widget).toMatch(/root\.show\(notifyProc\.toastChat\.replace\(\/\^\\\+\/, ""\)\)\) root\.open\(\)/);
 });
+
+// Fred, 2026-10-15: Blip said ALL CAUGHT UP while the iPhone showed five unread dots. Under
+// push_read=all a conversation read in Blip tells the phone nothing, so mark-all is the only
+// gesture that reaches it, and the panel hid the button (and the `a` key refused) whenever
+// Blip's OWN unread count was zero. It must stay available while the Mac can be told.
+describe("mark all read is not gated on Blip's own unread count", () => {
+  const view = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
+
+  test("the function, the button and its row share one gate that only push_read=off closes", () => {
+    expect(view).toMatch(/readonly property bool canMarkAllRead: root\.online && \(root\.unread > 0 \|\| !hostWidget \|\| hostWidget\.readPush !== "off"\)/);
+    expect(view).toMatch(/function markAllRead\(\) \{\s*if \(!root\.hostWidget \|\| !root\.canMarkAllRead\) return/);
+    expect(view).toMatch(/id: markAllBtn\s*visible: root\.canMarkAllRead && !root\.searchShowing && !root\.newMode/);
+    expect(view).toMatch(/\(root\.newMode \|\| root\.canMarkAllRead && !root\.searchShowing\)/);
+  });
+
+  test("nothing in the view still short-circuits mark-all on a zero count", () => {
+    expect(view).not.toMatch(/markAllRead\(\) \{[^}]*root\.unread === 0/);
+    expect(view).not.toMatch(/id: markAllBtn\s*visible: root\.unread > 0/);
+  });
+});

@@ -180,6 +180,11 @@ FocusScope {
   readonly property var unpinnedThreads: root.threads.filter(function(t) { return t.pinned !== true })
   readonly property bool online: hostWidget ? hostWidget.online : false
   readonly property int unread: hostWidget ? hostWidget.unread : 0
+  /** Mark-all is offered whenever the Mac can be told, not only while Blip counts an unread.
+   *  Under the default push_read=all a conversation read in Blip clears Blip's dot and tells
+   *  the iPhone nothing, so "ALL CAUGHT UP" here can sit beside unread dots on the phone, and
+   *  this is the one gesture that reaches it. Hidden only when push_read=off keeps the Mac out. */
+  readonly property bool canMarkAllRead: root.online && (root.unread > 0 || !hostWidget || hostWidget.readPush !== "off")
   /** The plugin's version, from the host (manifest.json). "" hides the tag. */
   readonly property string version: hostWidget && hostWidget.version ? String(hostWidget.version) : ""
 
@@ -835,7 +840,7 @@ FocusScope {
     Qt.callLater(function() { composeField.forceActiveFocus() })
   }
   function markAllRead() {
-    if (!root.hostWidget || root.unread === 0) return
+    if (!root.hostWidget || !root.canMarkAllRead) return
     root.hostWidget.markAllRead()
   }
   function markUnread(t) {
@@ -2525,7 +2530,7 @@ FocusScope {
             RowLayout {
               Layout.fillWidth: true
               visible: root.online && root.listShowing
-                && (root.newMode || root.unread > 0 && !root.searchShowing)
+                && (root.newMode || root.canMarkAllRead && !root.searchShowing)
               PanelSectionHeader {
                 Layout.fillWidth: true
                 text: root.newMode ? "NEW MESSAGE" : ""
@@ -2536,7 +2541,7 @@ FocusScope {
               // on the Mac to mark its conversations read too.
               Text {
                 id: markAllBtn
-                visible: root.unread > 0 && !root.searchShowing && !root.newMode
+                visible: root.canMarkAllRead && !root.searchShowing && !root.newMode
                 text: "mark all read"
                 textFormat: Text.PlainText
                 color: markAllHover.hovered ? root.mineFill : root.cyan
