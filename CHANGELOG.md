@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **"Mark all read" is there when Blip says ALL CAUGHT UP.** Under the default
+  `push_read=all`, reading a conversation in Blip clears Blip's dot and tells your
+  iPhone nothing, so the phone could show unread dots beside a caught-up Blip,
+  and the one gesture that reaches the phone was hidden (the button, and the `a`
+  key, only worked while Blip counted an unread). They now work whenever the Mac
+  can be told, and are hidden only with `push_read=off`. Right-clicking the bar
+  icon always did this. To sync every conversation as you read it instead, set
+  `push_read=thread`.
+
 - **A host's ssh agent can no longer defeat the confined key (#140, John
   Zetterman).** ssh offers agent-held keys before keys read from disk, whatever
   `-i` says. If your `ssh_config` named an agent key for the Mac, that key
