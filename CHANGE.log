@@ -45,6 +45,8 @@ LAST X POST: CONTRIBUTORS-X-POST.md (2026-09-11). Everything below the
 marker for Post 2 is in the Post 2 draft in X-POSTS.md.
 ------------------------------------------------------------------------
 
+2026-10-15  #140 A host's ssh agent can no longer defeat the confined key (IdentityAgent=none on every dedicated-key ssh call);
+                 blip-setup catches a bun the bar cannot see. John Zetterman, github.com/jzetterman, X: none found (checked 2026-10-15)
 2026-10-12  #141 Seven fixes from a whole-project review: a muted chat stays out of the badge when its rows leave the window,
                  old codes and already-read links are not offered after a long sleep, a repeated "ok" is not resolved by the earlier
                  one, file names with a tab or newline reach the Mac intact, blip-setup stops cleanly with no terminal, and a toast

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **A host's ssh agent can no longer defeat the confined key (#140, John
+  Zetterman).** ssh offers agent-held keys before keys read from disk, whatever
+  `-i` says. If your `ssh_config` named an agent key for the Mac, that key
+  logged in instead of `blip_ed25519`, the forced command was skipped, and the
+  bridge ran with a full shell; `blip-setup` also reported "did not confine"
+  over a correct `authorized_keys`. Every ssh call that uses the dedicated key
+  now passes `IdentityAgent=none`. `blip-setup` now also stops when `bun` is on
+  your shell's PATH but not on the PATH the bar sees (the graphical session
+  never reads your shell rc), and prints the symlink that fixes it.
+
+- **Seven fixes from a whole-project review (#141).** A muted conversation no
+  longer flickers back into the badge when its messages leave the window. A
+  security code older than five minutes, and a link you already read on your
+  phone, are no longer offered after a long sleep. Sending "ok" twice no longer
+  looks like it was lost. File names with a tab or newline reach the Mac
+  intact. Clicking a notification from a phone-number conversation opens it.
+  `blip-setup` with no terminal stops with an explanation instead of dying
+  silently. A restarted bridge daemon stops when the bar loses leadership.
+
 - **A send waits for the Automation prompt (#131, David Benedic).** `imsg-send`
   waited only 15 seconds for Messages, shorter than the Automation Allow
   prompt, so a first send died before anyone could click. It now waits 150
