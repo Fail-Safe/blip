@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 
 // Screenshot harness. Renders the REAL BlipView against the fake bridge, in a
 // plain window, with no bar and no second Omarchy shell fighting the live one.
@@ -92,7 +93,7 @@ ShellRoot {
 
     Rectangle {
       anchors.fill: parent
-      color: Color.background
+      color: Commons.Color.background
       radius: Style.space(12)
 
     BlipView {
@@ -103,8 +104,8 @@ ShellRoot {
       surfaceOpen: true
       readActive: false          // a screenshot must never move a read mark
       splitView: !win.narrow
-      foreground: Color.foreground
-      urgent: Color.urgent
+      foreground: Commons.Color.foreground
+      urgent: Commons.Color.urgent
       themeFont: Style.font.family
     }
 

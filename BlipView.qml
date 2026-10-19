@@ -9,6 +9,7 @@ import Quickshell
 import Quickshell.Io
 import QtQuick.Effects
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Blip panel — threads, then an iMessage-style conversation with a compose box.
@@ -65,8 +66,8 @@ FocusScope {
   // The window may be visible but unfocused / on another workspace: it still
   // renders and refreshes, but must not mark conversations read (war room #25).
   property bool readActive: true
-  property color foreground: Color.foreground
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.foreground
+  property color urgent: Commons.Color.urgent
   /** The theme's font, injected by whichever surface hosts this view. */
   property string themeFont: Style.font.family
   BlipAppearance { id: appearance; hostWidget: root.hostWidget; themeFont: root.themeFont; foreground: root.foreground }
@@ -2826,7 +2827,7 @@ FocusScope {
                         anchors.top: parent.top
                         anchors.leftMargin: -Style.space(1)
                         anchors.topMargin: -Style.space(1)
-                        color: Color.background
+                        color: Commons.Color.background
                         Rectangle {
                           anchors.centerIn: parent
                           width: Style.space(9); height: width; radius: width / 2
@@ -4161,8 +4162,8 @@ FocusScope {
     objectName: "blipMessageMenu"
     font.family: root.fontFamily
     font.pixelSize: root.fontBodySmall
-    palette.window: Color.background
-    palette.base: Color.background
+    palette.window: Commons.Color.background
+    palette.base: Commons.Color.background
     palette.text: root.foreground
     palette.windowText: root.foreground
     palette.buttonText: root.foreground
@@ -4265,7 +4266,7 @@ FocusScope {
     width: Math.max(0, Math.min(parent.width - Style.space(16), copyFeedbackText.implicitWidth + Style.space(24)))
     height: copyFeedbackText.implicitHeight + Style.space(16)
     radius: Style.cornerRadius
-    color: Color.background
+    color: Commons.Color.background
     border.width: 1
     border.color: root.copyFeedback === "Copied to clipboard" ? root.accent : root.urgent
     Text {
@@ -4323,7 +4324,7 @@ FocusScope {
       width: Math.min(parent.width - Style.space(32), Style.space(360))
       height: shareCol.implicitHeight + Style.space(28)
       radius: Style.cornerRadius
-      color: Color.background
+      color: Commons.Color.background
       border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
       border.width: 1
       TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds }   // clicks on the card stop here

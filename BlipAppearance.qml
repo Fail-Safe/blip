@@ -1,13 +1,14 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Shared by Blip's conversation view, bar host and OTP prompt. Keep visual
 // policy here so typography and palette changes reach every Blip surface.
 QtObject {
   property var hostWidget: null
   property string themeFont: Style.font.family
-  property color foreground: Color.foreground
-  readonly property color background: Color.background
+  property color foreground: Commons.Color.foreground
+  readonly property color background: Commons.Color.background
   readonly property color muted: Qt.alpha(foreground, 0.66)
   readonly property color accent: "#0a84ff"
   readonly property color accentText: "#ffffff"

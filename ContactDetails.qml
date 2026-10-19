@@ -4,12 +4,13 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 FocusScope {
   id: root
   required property var card
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color accent: "#0a84ff"
   property string fontFamily: Style.font.family
   property int fontSize: Style.font.bodySmall
@@ -79,7 +80,7 @@ FocusScope {
       Layout.fillWidth: true
       text: root.error || (root.details ? root.details.source : "Reading contact details…")
       textFormat: Text.PlainText; wrapMode: Text.WordWrap
-      color: root.error ? Color.urgent : root.foreground
+      color: root.error ? Commons.Color.urgent : root.foreground
       font.family: root.fontFamily; font.pixelSize: root.fontSize
     }
     PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }

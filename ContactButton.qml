@@ -1,11 +1,12 @@
 import QtQuick
 import QtQuick.Controls as QQC
 import qs.Commons
+import qs.Commons as Commons
 
 // Contact actions share the panel typography and wrap at the available width.
 QQC.Button {
   id: root
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color accent: "#0a84ff"
   property string fontFamily: Style.font.family
   property real fontSize: Style.font.bodySmall

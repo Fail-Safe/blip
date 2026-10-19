@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // A conversation tool. The helper supplies validated display rows; this view
@@ -12,7 +13,7 @@ FocusScope {
   id: root
   property bool opened: false
   property var threads: []
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color accent: "#0a84ff"
   property string fontFamily: Style.font.family
   property int fontSize: Style.font.bodySmall
@@ -193,7 +194,7 @@ FocusScope {
       Layout.fillWidth: true
       text: root.busy ? "Checking Mac Contacts…" : root.error || root.notice || (root.model ? root.model.detail : "")
       textFormat: Text.PlainText; wrapMode: Text.WordWrap
-      color: root.error !== "" ? Color.urgent : root.foreground
+      color: root.error !== "" ? Commons.Color.urgent : root.foreground
       font.family: root.fontFamily; font.pixelSize: root.fontSize
     }
     PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }

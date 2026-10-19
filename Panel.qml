@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Blip panel — threads, then an iMessage-style conversation with a compose box.
@@ -121,8 +122,8 @@ Panel {
         anchors.fill: parent
         hostWidget: root.hostWidget
         surfaceOpen: root.opened
-        foreground: root.bar ? root.bar.foreground : Color.foreground
-        urgent: root.bar ? root.bar.urgent : Color.urgent
+        foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
+        urgent: root.bar ? root.bar.urgent : Commons.Color.urgent
         themeFont: root.bar ? root.bar.fontFamily : Style.font.family
         onNavigationFocusRequested: view.navigationKeys.forceActiveFocus()
       }
