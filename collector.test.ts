@@ -1368,6 +1368,14 @@ describe("complete conversation list (mergeChats)", () => {
     expect(mergeChats([blue], [merged], {}, {})[0]!.service).toBe("iMessage");
   });
 
+  // Same failure when the unified row is stored as SMS. `any;-;+number` chats
+  // are service_name SMS even when the live thread is iMessage. Copying that
+  // onto the thread makes Blip add `--service SMS` and send a green bubble.
+  test("a unified SMS chat row does not override a DM's iMessage send service", () => {
+    const unified = { ...chats[0]!, service: "SMS" };
+    expect(mergeChats([windowThread], [unified], {}, {})[0]!.service).toBe("iMessage");
+  });
+
   test("a genuinely green DM still takes its service from the list", () => {
     const green = { ...windowThread, chat: "+15559990000", service: "SMS" };
     expect(mergeChats([green], [chats[2]!], {}, {})[0]!.service).toBe("SMS");
