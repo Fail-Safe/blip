@@ -36,6 +36,10 @@ PEOPLE (verified handles)
   Chad Stovern      github.com/chadhs       X https://x.com/chadstovern  (he said so on #124, 2026-09-30)
   Greyforge Labs    github.com/GreyforgeLabs X https://x.com/GreyforgeLabs (GitHub profile twitter_username AND social_accounts; X name matches, checked 2026-10-02)
   Brandon Smith     github.com/bndnsmth     X https://x.com/bndnsmth     (he said so on #134, 2026-10-07)
+  Jared Moody       github.com/jaredmoody   X https://x.com/jaredmoody   (GitHub profile twitter_username AND social_accounts; X handle exists, checked 2026-10-21)
+  Barry Jones       github.com/brightball   X https://x.com/brightball   (linked from his site brightball.com; X name "Barry Jones", 1.3k followers, checked 2026-10-21)
+  John Zetterman    github.com/jzetterman   X https://x.com/jzetterman   (he said so on #140, 2026-10-16; X name matches)
+  edmooredop        github.com/edmooredop   X: none found (checked 2026-10-21; asked Fred)
   Fred Nix          github.com/nixfred      X https://x.com/nixfred
 
 Earlier contributors and their handles: CONTRIBUTORS-X-POST.md.
@@ -45,10 +49,17 @@ LAST X POST: CONTRIBUTORS-X-POST.md (2026-09-11). Everything below the
 marker for Post 2 is in the Post 2 draft in X-POSTS.md.
 ------------------------------------------------------------------------
 
+2026-10-21  #143 Security-code toasts fire for alphanumeric sender IDs (msverify, Google, HSBC): the code gate no longer reads a
+                 sender whose chat is its own handle as a group; sending is unchanged. Reported by edmooredop, github.com/edmooredop,
+                 X: none found (checked 2026-10-21). Fixed by Larry & Fred, github.com/nixfred, X https://x.com/nixfred
+2026-10-21  #145 blip-setup finishes on a Mac whose login shell is fish (the SSH_CONNECTION read no longer uses bash-only syntax);
+                 fixes #144. Reporter and fixer: Jared Moody, github.com/jaredmoody, X https://x.com/jaredmoody
+2026-10-21  #147 Test: a unified SMS chat row cannot turn an iMessage DM green (locks the #97 guard for the SMS-stored row).
+                 Barry Jones, github.com/brightball, X https://x.com/brightball
 2026-10-15  #142 Mark all read works while Blip says ALL CAUGHT UP, so it can still clear the iPhone (the button and the a key were gated
                  on Blip's own unread count). Larry & Fred, github.com/nixfred, X https://x.com/nixfred
 2026-10-15  #140 A host's ssh agent can no longer defeat the confined key (IdentityAgent=none on every dedicated-key ssh call);
-                 blip-setup catches a bun the bar cannot see. John Zetterman, github.com/jzetterman, X: none found (checked 2026-10-15)
+                 blip-setup catches a bun the bar cannot see. John Zetterman, github.com/jzetterman, X https://x.com/jzetterman
 2026-10-12  #141 Seven fixes from a whole-project review: a muted chat stays out of the badge when its rows leave the window,
                  old codes and already-read links are not offered after a long sleep, a repeated "ok" is not resolved by the earlier
                  one, file names with a tab or newline reach the Mac intact, blip-setup stops cleanly with no terminal, and a toast

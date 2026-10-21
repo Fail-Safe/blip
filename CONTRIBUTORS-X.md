@@ -32,6 +32,9 @@ tags are at the bottom.
 | Brandon Smith | bndnsmth | https://x.com/bndnsmth | 1 | he said so himself on #134, 2026-10-07 |
 | Baden | badenpiland | https://x.com/badenpiland | 1 | GitHub profile + social accounts (older notes said @bhp35, which does not exist) |
 | Greyforge Labs | GreyforgeLabs | https://x.com/GreyforgeLabs | 1 | GitHub profile + social accounts; X name matches, 2026-10-02 |
+| Jared Moody | jaredmoody | https://x.com/jaredmoody | 1 (+ issue #144) | GitHub profile + social accounts, 2026-10-21 |
+| Barry Jones | brightball | https://x.com/brightball | 1 | linked from his site brightball.com; X name matches, 2026-10-21 |
+| John Zetterman | jzetterman | https://x.com/jzetterman | 1 | he said so himself on #140, 2026-10-16; X name matches |
 
 ## Likely, waiting on Fred
 
@@ -53,10 +56,13 @@ Nobody right now.
 None have published an X account (checked 2026-09-25): jacobaross, Zain Nayer
 (znayer), Benny (apexbenny), Nova (nova-centauri, barrett.software).
 
+edmooredop (#143, security-code toast for alphanumeric senders): nothing published
+on GitHub, no name or site (checked 2026-10-21); Fred asked.
+
 ## Paste block
 
 ```
-@ianfs @jondkinney @jefehoser @adamgamble @zachwilke_1 @jmythoren @gjouret @damonjanis @tlehmanifold @joshuaswarren @ezachrisen @jethrojones @bbishdotdev @badenpiland @followbl @StudioXRadio @chadstovern @GreyforgeLabs @bndnsmth
+@ianfs @jondkinney @jefehoser @adamgamble @zachwilke_1 @jmythoren @gjouret @damonjanis @tlehmanifold @joshuaswarren @ezachrisen @jethrojones @bbishdotdev @badenpiland @followbl @StudioXRadio @chadstovern @GreyforgeLabs @bndnsmth @jaredmoody @brightball @jzetterman
 ```
 
 Plus by name: Erik Fillipsveen (github.com/Fileri), joshhattan,

@@ -25,6 +25,76 @@ reconstructed on Sunday from memory.
 
 ---
 
+## 2026-W43 (Mon 19 Oct to Sun 25 Oct): OPEN, post due Sun 25 Oct
+
+### What people said this week (quote with attribution in the post)
+
+- Nothing new yet. A reply from @coltonfitzgerald on #146 is awaited (asked
+  for a screenshot and a small escape fix, 21 Oct).
+
+### Wed 21 Oct: #145 and #147 merged, #143 fixed, #146 asked for changes
+
+- **#145 setup finishes on a Mac whose login shell is fish; fixes #144.**
+  Jared Moody (https://x.com/jaredmoody), reporter AND fixer. sshd runs the
+  remote command under the Mac user's login shell and fish rejects
+  `${SSH_CONNECTION%% *}`, so the wizard stopped after the Mac install but
+  before the dedicated key was written: `blip-check` green, bridge failing
+  with `Permission denied`. Verified: reviewed and approved, suite 769
+  passing with it merged. NOT verified: the patched wizard has not been run
+  end to end on a fish Mac (Jared reproduced the failure on macOS 27.0.1 and
+  enrolled the key by hand). The added test only asserts source text, so a
+  test that executes the read under fish, bash and zsh is an open ask on
+  the PR. The door classifier calls this one-way (it touches
+  `scripts/blip-setup` and adds an `ssh` call). Larry merged it before
+  running the classifier, and ran it afterwards; the process miss is
+  recorded here so the post does not overstate the review.
+
+- **#147 a unified SMS row cannot turn an iMessage DM green (test only).**
+  Barry Jones (https://x.com/brightball). Locks the #97 guard for the case
+  where the merged 1:1 is stored as SMS, which showed up on an install
+  pinned to v2.5.0. Verified by mutation: with the `greenDowngrade` guard
+  removed both the RCS test and his fail.
+
+- **#143 security-code toasts for alphanumeric senders.** Reported by
+  edmooredop (github.com/edmooredop; no X account found, asked Fred), fixed
+  by Larry. A UK text from `msverify` never produced the toast because
+  `isGroupChat()` calls any non-phone, non-email id a group. That catch-all
+  is deliberate (an unknown id shape must never become a send target), so
+  the fix is in the code gate only: a chat that IS the speaker's handle is a
+  sender. Verified: the issue's exact repro failed before and passes after,
+  on the deployed copy on gus too. Ordinary toasts were never affected.
+  Not deployed to vic. A brief `online=false` on gus right after the copy
+  recovered on the next poll (cause unproven; the copy was in place).
+
+- **#146 right-click a photo to open, copy or save it.** Colton Fitzgerald
+  (github.com/coltonfitzgerald, X not looked up yet), OPEN. Code review found
+  nothing blocking (772 tests, generated module matches a fresh build, same
+  no-overwrite write path as Save vCard). Asked for the screenshot the PR
+  template requires and for literal bidi characters in a regex to become
+  `\u` escapes. Picker and live QML NOT run by Larry (no `zenity` on gus).
+
+## 2026-W42 (Mon 12 Oct to Sun 18 Oct): backfilled 21 Oct from CHANGE.log, no post drafted
+
+### What people said this week (quote with attribution in the post)
+
+- **John Zetterman** (https://x.com/jzetterman), on #140, 16 Oct: "It's just
+  something I ran into and I figured contributing will help others as well!
+  I'm glad it was so useful. My X handle is @jzetterman." (Found 21 Oct by
+  the comment sweep; it sat unrecorded for five days.)
+
+### Thu 15 Oct and Mon 12 Oct: #140, #141, #142
+
+- **#140 a host's ssh agent can no longer defeat the confined key.** John
+  Zetterman (https://x.com/jzetterman). `IdentityAgent=none` on every
+  dedicated-key ssh call, and `blip-setup` catches a bun the bar cannot see.
+- **#142 mark all read works while Blip says ALL CAUGHT UP.** Larry and
+  Fred. Under the default `push_read=all` the phone could show unread dots
+  beside a caught-up Blip, and the gesture that reaches the phone was hidden
+  exactly then.
+- **#141 seven fixes from a whole-project review.** Larry and Fred (muted
+  chat badge, stale codes after sleep, repeated "ok", tab/newline file
+  names, setup with no terminal, toast click on a phone-number chat).
+
 ## 2026-W41 (Mon 5 Oct to Sun 11 Oct): OPEN, post due Sun 11 Oct
 
 ### What people said this week (quote with attribution in the post)

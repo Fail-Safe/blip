@@ -10,6 +10,16 @@
   are still never offered a code, and nothing about sending changed: an
   unknown id shape is still never a DM target.
 
+- **`blip-setup` finishes when the Mac's login shell is fish (#144, #145,
+  thanks @jaredmoody).** sshd runs the remote command under the Mac user's
+  login shell, and fish rejects `${SSH_CONNECTION%% *}`. With `set -e` the
+  wizard stopped after installing the Mac tools but before the dedicated key
+  reached `authorized_keys`: `blip-check` was green and the bridge failed with
+  `Permission denied`. The Mac now returns the plain variable, which every
+  shell accepts, and the first field is trimmed on the Linux side. Not yet run
+  end to end against a fish Mac with the patched wizard; the author reproduced
+  the failure and enrolled the key by hand.
+
 - **"Mark all read" is there when Blip says ALL CAUGHT UP.** Under the default
   `push_read=all`, reading a conversation in Blip clears Blip's dot and tells your
   iPhone nothing, so the phone could show unread dots beside a caught-up Blip,
