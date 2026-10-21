@@ -2065,6 +2065,36 @@ describe("security codes: detect, hold once, never from a group", () => {
     // A long suspend: the message is past the five-minute life of a code, so nothing is offered.
     expect(selectCodes([m], WM, [], [], NOW + 3 * 3600_000)).toEqual([]);
   });
+
+  // #143: outside the US most 2FA arrives from an alphanumeric sender ID.
+  // isGroupChat() calls anything that is not a phone/email a group (right for
+  // SENDING: an unknown shape must never become a DM target), which silently
+  // dropped every one of these. A sender's chat IS its handle; a group's chat
+  // is opaque and never equals the speaker's handle.
+  test("selectCodes: an alphanumeric sender ID is a sender, not a group (#143)", () => {
+    const NOW = Date.parse("2026-09-02T12:35:00Z");
+    const from = (id: string, over: Partial<ImsgMessage> = {}) =>
+      msg({ ts: "2026-09-02T12:30:00Z", chat: id, handle: id, name: null, text: "Use verification code 123456 for CAA Exchange authentication.", ...over });
+    for (const id of ["msverify", "Google", "HSBC", "NatWest", "AMAZON"]) {
+      const out = selectCodes([from(id)], WM, [], [], NOW);
+      expect(out.map((c) => [c.code, c.name, c.chat])).toEqual([["123456", id, id]]);
+    }
+    // still never a group: real shapes, even when the speaker's handle looks like a sender ID
+    expect(selectCodes([from("e98633ecd4e84723b69d142cd721b2b9", { handle: "msverify" })], WM, [], [], NOW)).toEqual([]);
+    expect(selectCodes([from("chat640665907856941413", { handle: "msverify" })], WM, [], [], NOW)).toEqual([]);
+    expect(selectCodes([from("chat640665907856941413", { handle: "chat640665907856941413" })], WM, [], [], NOW)).toEqual([]);
+    expect(selectCodes([from("e98633ecd4e84723b69d142cd721b2b9", { handle: "e98633ecd4e84723b69d142cd721b2b9" })], WM, [], [], NOW)).toEqual([]);
+    // an unknown shape with a DIFFERENT speaker is a group, the safe direction
+    expect(selectCodes([from("weird-id", { handle: "+15550001111" })], WM, [], [], NOW)).toEqual([]);
+    // and the rest of the gate still holds for a sender ID: self-thread, outbound, ring, backlog
+    const m = from("msverify");
+    expect(selectCodes([m], WM, [], ["msverify"], NOW)).toEqual([]);
+    expect(selectCodes([{ ...m, from_me: true }], WM, [], [], NOW)).toEqual([]);
+    expect(selectCodes([m], WM, [selectCodes([m], WM, [], [], NOW)[0]!.key], [], NOW)).toEqual([]);
+    expect(selectCodes([m], "", [], [], NOW)).toEqual([]);
+    // the send-side guard is untouched
+    expect(isGroupChat("msverify")).toBe(true);
+  });
 });
 
 describe("reads and aliases (Astra #9)", () => {

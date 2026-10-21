@@ -1064,6 +1064,17 @@ export function extractCode(text: string | null | undefined): { code: string; do
   return best ? { code: best.code, domain: "" } : null;
 }
 
+/** An alphanumeric sender ID ("msverify", "Google", "HSBC") is a SENDER, not a
+ *  group. isGroupChat() calls it a group on purpose — it is a catch-all so an
+ *  unknown shape can never become a DM TARGET — and that is the right answer for
+ *  sending, but it dropped every 2FA text outside the US (#143). A group's chat
+ *  id is opaque and never equals the speaker's handle; for a sender the chat IS
+ *  the handle. Only the code gate asks this: sending, avatars and read marks keep
+ *  the safe direction. */
+function isSenderIdChat(m: ImsgMessage, chat: string): boolean {
+  return chat !== "" && m.handle === chat && !/^[0-9a-f]{32}$/i.test(chat) && !/^chat[0-9]+$/i.test(chat);
+}
+
 /**
  * Codes that JUST arrived. Same gate as links: inbound, strictly newer than
  * the watermark, never the self-thread, once per message through the
@@ -1092,7 +1103,7 @@ export function selectCodes(
     const sent = Date.parse(m.ts);
     if (Number.isFinite(sent) && now - sent > CODE_MAX_AGE_MS) continue;
     const chat = chatKey(m);
-    if (self.has(chat) || isGroupChat(chat)) continue;
+    if (self.has(chat) || (isGroupChat(chat) && !isSenderIdChat(m, chat))) continue;
     const found = extractCode(m.text);
     if (!found) continue;
     const key = "code:" + toastKey(m);

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Security-code toasts now fire for alphanumeric sender IDs (#143, thanks
+  @edmooredop).** Outside the US most 2FA text arrives from a name rather than
+  a number (`msverify`, `Google`, `HSBC`, `NatWest`). Blip read those as group
+  chats and dropped the code before it reached the toast. A conversation whose
+  chat is the sender's own handle is now treated as a sender for codes. Groups
+  are still never offered a code, and nothing about sending changed: an
+  unknown id shape is still never a DM target.
+
 - **"Mark all read" is there when Blip says ALL CAUGHT UP.** Under the default
   `push_read=all`, reading a conversation in Blip clears Blip's dot and tells your
   iPhone nothing, so the phone could show unread dots beside a caught-up Blip,
