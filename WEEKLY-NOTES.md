@@ -32,6 +32,28 @@ reconstructed on Sunday from memory.
 - Nothing new yet. A reply from @coltonfitzgerald on #146 is awaited (asked
   for a screenshot and a small escape fix, 21 Oct).
 
+### Sat 24 Oct: #148 merged
+
+- **#148 allow or stop Blip notifications from a conversation's menu.**
+  Mark B (github.com/Fail-Safe; X: none found, asked on the PR and Fred). Right-click a
+  direct conversation or pinned avatar, or use the thread header's ... button, to Allow or
+  Stop Blip Notifications, instead of hand-editing allowlist.json. It edits that same file:
+  atomic 0600 writes, refuses to overwrite a file that does not parse, one conversation's
+  phone or email only, never a group's last speaker. Verified: reviewed in a detached
+  worktree, suite 783 passing with it merged, read-ui QtTest 6/6, door classifier two-way,
+  and a mutation check (matching on the chat only fails 3 of his 14 new tests). His
+  screenshot is genuine harness output with fictional contacts. Changed in the merge: he had
+  deleted two existing tests (the README's allowlist and mutelist examples load as written;
+  the conversation menu matches Messages), both still pass against his code, so both were
+  restored. NOT verified: nobody clicked the menu on a live desktop, and it is unknown
+  whether a popout from a second monitor's bar (not the leader) can reach the allowlist
+  process; it would read "Blip Notifications Unavailable". He builds Omarchy plugins
+  himself (omarchy-veil, omarchy-audiogram-eq, omarchy-dexcom). Live on gus after the
+  merge (shell restarted, `status` healthy, the DEPLOYED toast-allowlist.ts exercised
+  against a temp file: create at mode 0600, idempotent set leaves the file byte-identical,
+  remove, group refused, malformed JSON refused and left alone; the real allowlist was not
+  touched). Not deployed to vic.
+
 ### Wed 21 Oct: #145 and #147 merged, #143 fixed, #146 asked for changes
 
 - **#145 setup finishes on a Mac whose login shell is fish; fixes #144.**
@@ -590,6 +612,10 @@ no session waives it. Fred approved each on 4 Oct.
   compactor would hit it.
 
 ### Handles Fred still needs to answer (asked 2026-09-18)
+- **Mark B** (github.com/Fail-Safe, #148, merged 24 Oct): nothing published on his
+  profile, social accounts or repo READMEs. @Fail_Safe on X is "Bob Boberson", 0
+  followers, no posts, so NOT him. Asked on the PR with "rather not be tagged"
+  offered. Untagged until he or Fred answers; do not guess.
 - **Brad Larson** (github.com/followbl, #113), asked 2026-09-23. Nothing
   published on GitHub or his site metaintro.com. https://x.com/followbl has
   the same unique login and the same name, 905 followers, posts about AI

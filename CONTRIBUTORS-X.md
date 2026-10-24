@@ -50,6 +50,7 @@ Nobody right now.
 | cw228 | cw228 | 1 | nothing published; asked on the PR 2026-09-18 |
 | David Benedic | daveyb | 1 (cherry-picked) | nothing published; asked on #131 2026-10-04 |
 | "Unhook Dev" | tolewis | 1 | nothing published, 2026-09-25 |
+| Mark B | Fail-Safe | 1 | nothing on his profile, social accounts or repo READMEs, 2026-10-24; X @Fail_Safe is "Bob Boberson" (0 followers, no posts), NOT him; asked on #148, Fred asked. Builds Omarchy plugins himself (omarchy-veil, omarchy-audiogram-eq, omarchy-dexcom) |
 
 ## Issue reporters who changed the code
 
