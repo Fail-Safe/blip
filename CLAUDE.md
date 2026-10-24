@@ -36,6 +36,7 @@ avatar.ts                           handle → ~/.cache/blip/avatars (imsg avata
                                     for 15 min, never skips it (skipping cost ~45 s per window open).
                                     The url map lives in BarWidget.avatarCache: the window is rebuilt.
 paste.ts                            clipboard snapshot → draft image in $XDG_RUNTIME_DIR/blip or text.
+toast-allowlist.ts                  local allowlist load/set helper; bounded JSON stdin, atomic private writes.
 BarWidget.qml                       the single poller, badge, toasts, IPC.
 Panel.qml                           list view + conversation view + compose. Renders only.
 manifest.json                       plugin id nixfred.blip
@@ -297,6 +298,14 @@ what it is handed. Keep it that way.
   Duplicate scans include named conversations and short codes. The private
   `audit-cache.json` holds contact summaries only and is reused only after
   validating the handle-set and current Mac store fingerprints.
+- **Blip toast permission is local, not Messages Hide Alerts.** Conversation
+  menus use `toast-allowlist.ts` to update the existing `allowlist.json`.
+  Matching stays exact chat OR handle, as in `selectToasts`; disabling removes
+  both matching keys, preserving unrelated entries and object metadata. Groups
+  never use the last speaker as a notification-settings target. BarWidget owns
+  the process and shared saved state, so closing either view cannot cancel a
+  write. Invalid JSON is shown as an error, never silently replaced. No read
+  marks, unread counts, bridge calls, or new automation IPC are involved.
 - **Configuration is `bridge.conf` keys, not a settings system.** Blip has one
   config file (`~/.config/blip/bridge.conf`, parsed not sourced) carrying
   `host`, `remote_bin`, `automation`, `ui_font_size`, `ui_font_theme`,

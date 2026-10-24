@@ -425,21 +425,30 @@ scrolling is always direct. `status` shows `smooth_scroll=on` while it is on.
 `CLAUDE.md`). Re-run `blip-setup` after updates that touch `bridge/`; it is
 safe to re-run.
 
-**Toasts** — desktop notifications fire only for handles you list; everything
-else still counts and still shows. Put this in
-`~/.config/blip/allowlist.json`; it is re-read every poll, so no restart.
+**Toasts** — desktop notifications fire only for allowed handles; everything
+else still counts and still shows. Right-click a person's conversation row or
+pinned avatar, or use the **⋯ (Conversation actions)** button in their thread, and choose
+**Allow Blip Notifications**. The same menu offers **Stop Blip Notifications**
+when that conversation's phone number or email is already allowed.
+These are local desktop toasts, separate from Messages' **Hide Alerts** on the
+Mac. The control is available for direct phone/email conversations, not groups;
+it does not send messages, mark them read, or require `automation=on`.
+
+The menu updates `~/.config/blip/allowlist.json` immediately. You can still edit
+the file yourself; it is re-read every poll, so no restart:
 
 ```json
 { "allow": ["+15551234567", "them@icloud.com"] }
 ```
 
-Strict JSON — **no comments, no trailing commas.** A file that does not parse
-is treated as an empty list, silently, so a stray `//` line reads exactly like
-having no allowlist at all: everything still counts on the badge, and nothing
-ever toasts. If toasts are not firing, check the file parses
+Strict JSON — **no comments, no trailing commas.** The collector treats a file
+that does not parse as an empty list: everything still counts on the badge,
+and nothing toasts. The GUI instead shows an error and refuses to overwrite
+that file until it is fixed. If toasts are not firing, check the file parses
 (`jq . ~/.config/blip/allowlist.json`) before anything else. List each handle a
 person actually messages from — someone with an iCloud address *and* a phone
-needs both lines, or they go quiet whenever they switch.
+needs both entries; the menu changes only the selected conversation's
+phone/email, not every address on their contact card.
 
 **Mute (spam)** — the allowlist's opposite: a muted conversation does not
 show at all. No sidebar row, no unread count, no toast. This is the knob for

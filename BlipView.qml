@@ -80,7 +80,7 @@ FocusScope {
   readonly property color dim: appearance.muted
   /** An editor owns the keyboard — the host's key catcher must stand down. */
   readonly property bool editorActive:
-    messageMenu.visible || contactReview.opened || composeField.activeFocus || searchField.activeFocus || newField.activeFocus || bubbleFocused
+    messageMenu.visible || contactMenu.visible || contactReview.opened || composeField.activeFocus || searchField.activeFocus || newField.activeFocus || bubbleFocused
   readonly property alias composeEditor: composeField
   readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
@@ -181,6 +181,11 @@ FocusScope {
   readonly property var unpinnedThreads: root.threads.filter(function(t) { return t.pinned !== true })
   readonly property bool online: hostWidget ? hostWidget.online : false
   readonly property int unread: hostWidget ? hostWidget.unread : 0
+  readonly property var toastAllowlist: hostWidget ? hostWidget.toastAllowlist : []
+  readonly property bool toastAllowlistLoaded: hostWidget ? hostWidget.toastAllowlistLoaded === true : false
+  readonly property bool toastAllowlistBusy: hostWidget ? hostWidget.toastAllowlistBusy === true : false
+  readonly property bool toastAllowlistReady: hostWidget ? hostWidget.toastAllowlistReady === true : false
+  readonly property string toastAllowlistError: hostWidget ? String(hostWidget.toastAllowlistError || "") : ""
   /** Mark-all is offered whenever the Mac can be told, not only while Blip counts an unread.
    *  Under the default push_read=all a conversation read in Blip clears Blip's dot and tells
    *  the iPhone nothing, so "ALL CAUGHT UP" here can sit beside unread dots on the phone, and
@@ -2451,6 +2456,18 @@ FocusScope {
 
         PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
 
+        Text {
+          objectName: "blipToastErrorList"
+          Layout.fillWidth: true
+          visible: root.toastAllowlistError !== ""
+          text: "Blip notifications: " + root.toastAllowlistError
+          textFormat: Text.PlainText
+          color: root.urgent
+          font.family: root.fontFamily
+          font.pixelSize: root.fontCaption
+          wrapMode: Text.WordWrap
+        }
+
         // ---------------------------------------------------- scroll body
         Flickable {
           id: threadFlick
@@ -2728,7 +2745,7 @@ FocusScope {
                   TapHandler { onTapped: root.openThread(modelData) }
                   TapHandler {
                     acceptedButtons: Qt.RightButton
-                    onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                    onTapped: root.openContactMenu(modelData)
                   }
 
                   ColumnLayout {
@@ -2982,7 +2999,7 @@ FocusScope {
                   TapHandler { onTapped: root.openThread(modelData) }
                     TapHandler {
                       acceptedButtons: Qt.RightButton
-                      onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                      onTapped: root.openContactMenu(modelData)
                     }
 
                   RowLayout {
@@ -3186,12 +3203,17 @@ FocusScope {
             fontFamily: root.fontFamily
           }
           PanelActionButton {
+            id: conversationActions
+            objectName: "blipConversationActions"
             visible: root.inThread
             iconText: "⋯"
-            tooltipText: "Review contact"
+            tooltipText: "Conversation actions"
+            Accessible.name: "Conversation actions"
+            focusable: true
             foreground: root.foreground
             hoverColor: root.accent
-            onClicked: contactReview.review(root.active)
+            fontFamily: root.fontFamily
+            onClicked: root.openContactMenu(root.active, conversationActions)
           }
           // The app's NEW button lives up here (where "Esc = back" used to be).
           PanelActionButton {
@@ -3209,6 +3231,18 @@ FocusScope {
         }
 
         PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
+
+        Text {
+          objectName: "blipToastErrorThread"
+          Layout.fillWidth: true
+          visible: !root.listShowing && root.toastAllowlistError !== ""
+          text: "Blip notifications: " + root.toastAllowlistError
+          textFormat: Text.PlainText
+          color: root.urgent
+          font.family: root.fontFamily
+          font.pixelSize: root.fontCaption
+          wrapMode: Text.WordWrap
+        }
 
         // ---------------------------------------------------- scroll body
         Flickable {
@@ -4192,10 +4226,39 @@ FocusScope {
     var c = t ? String(t.chat || "") : ""
     return /^\+?[0-9]{3,15}$/.test(c) || c.indexOf("@") > 0
   }
+  function blipNotificationsAllowed(t) {
+    return t !== null && (root.toastAllowlist.indexOf(String(t.chat || "")) >= 0
+      || root.toastAllowlist.indexOf(String(t.handle || "")) >= 0)
+  }
+  function openContactMenu(t, item) {
+    if (!t) return
+    root.contactContext = t
+    if (root.hostWidget && root.isDmChat(t)) root.hostWidget.reloadToastAllowlist()
+    if (item) {
+      var at = item.mapToItem(root, Math.max(0, item.width - contactMenu.width), item.height)
+      contactMenu.popup(root, at.x, at.y)
+    } else contactMenu.popup()
+  }
   function menuIcon(name) { return Qt.resolvedUrl("icons/" + name + ".svg") }
   Menu {
     id: contactMenu
-    width: 240
+    objectName: "blipContactMenu"
+    width: Math.max(260, implicitWidth)
+    padding: 6
+    font.family: root.fontFamily
+    font.pixelSize: root.fontBodySmall
+    palette.window: Commons.Color.background
+    palette.base: Commons.Color.background
+    palette.text: root.foreground
+    palette.windowText: root.foreground
+    palette.buttonText: root.foreground
+    palette.highlight: root.accent
+    palette.highlightedText: "#ffffff"
+    background: Rectangle {
+      color: contactMenu.palette.window
+      border.color: Qt.alpha(contactMenu.palette.windowText, 0.25)
+      radius: 7
+    }
     MenuItem {
       text: "Review contact"
       onTriggered: if (root.contactContext) contactReview.review(root.contactContext)
@@ -4237,6 +4300,26 @@ FocusScope {
       onTriggered: {
         var t = root.contactContext
         if (t && root.hostWidget) root.hostWidget.conversationAct(t.muted ? "unmute" : "mute", t.chat)
+      }
+    }
+    MenuSeparator {
+      visible: root.isDmChat(root.contactContext)
+      height: visible ? implicitHeight : 0
+    }
+    MenuItem {
+      objectName: "blipToastNotifications"
+      visible: root.isDmChat(root.contactContext)
+      height: visible ? implicitHeight : 0
+      enabled: visible && root.toastAllowlistReady
+      text: !root.toastAllowlistLoaded
+        ? (root.toastAllowlistBusy ? "Loading Blip Notifications…" : "Blip Notifications Unavailable")
+        : (root.blipNotificationsAllowed(root.contactContext) ? "Stop Blip Notifications" : "Allow Blip Notifications")
+          + (root.toastAllowlistBusy
+            ? (root.hostWidget.toastAllowlistAction === "set" ? " (Saving…)" : " (Loading…)") : "")
+      onTriggered: {
+        var t = root.contactContext
+        if (!root.isDmChat(t) || !root.toastAllowlistReady || !root.hostWidget) return
+        root.hostWidget.setToastAllowed(String(t.chat), String(t.handle || ""), !root.blipNotificationsAllowed(t))
       }
     }
   }

@@ -10,7 +10,7 @@ inventory of what lands on disk.
 |---|---|---|
 | `~/.config/blip/bridge.conf` (0600) | Mac ssh target, remote tool dir, path of Blip's key, `automation=` switch | credentials |
 | `~/.ssh/blip_ed25519` | Blip's dedicated ssh key — confined on the Mac to the bridge tools | — |
-| `~/.config/blip/allowlist.json` | handles allowed to raise desktop toasts | message text |
+| `~/.config/blip/allowlist.json` (GUI writes: 0600, atomic) | handles allowed to raise desktop toasts | message text |
 | `~/.config/blip/mutelist.json` | handles and phrases you typed, whose conversations Blip hides entirely | message text Blip received |
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, pending read actions and retry status, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
 | `~/.local/state/blip/audit-cache.json` (0600, parent 0700) | bounded contact-scan summaries: handles, candidate names, source labels, counts, opaque card tokens, and freshness fingerprints | message bodies, photos, full contact cards |
@@ -20,6 +20,12 @@ inventory of what lands on disk.
 | `~/.cache/blip/avatars/` (0700, files 0600, 7-day TTL) | contact photos for people in your thread list, named by a hash of the handle; an empty `.none` marker for contacts without one | names, numbers |
 | `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box; a 60s AddressBook dump (`contacts-dump.json`, names, phones, emails) for live new-message search; swept after an hour and gone at logout | message bodies |
 | `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/imsg-read`, `~/bin/imsg-react`, `~/bin/contacts`, `~/bin/contact-save` (or `bin_dir=` in `bridge.conf`) | the bridge shim (a bash script) | — |
+
+**Desktop-toast controls are local.** A direct conversation's **Allow Blip
+Notifications / Stop Blip Notifications** menu changes only the existing
+allowlist. It writes no message bodies, calls no Mac tool, and changes neither
+read state nor Messages' Hide Alerts setting. Other entries and object metadata
+are preserved; malformed configuration is reported and left untouched.
 
 **Marking a conversation read is visible to the sender.** Blip can now tell
 Messages on the Mac that you have read something (`push_read=` in
