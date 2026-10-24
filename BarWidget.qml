@@ -37,6 +37,8 @@ BarWidget {
   readonly property string collectorPath:
     decodeURIComponent(Qt.resolvedUrl("collector.ts").toString().replace(/^file:\/\//, ""))
 
+  readonly property string toastAllowlistScript:
+    decodeURIComponent(Qt.resolvedUrl("toast-allowlist.ts").toString().replace(/^file:\/\//, ""))
   // Clock and date patterns from this widget's shell.json entry — Qt format
   // strings, exactly as Omarchy's clock takes `format`. Qt formats the list
   // with them and thread.ts formats the bubbles with the same strings, so the
@@ -110,6 +112,99 @@ BarWidget {
       reactProc.sawExit = true
       if (code === 0) root.tapbackExited(root.tapbackChat, true)
       else root.tapbackFailed(root.tapbackChat, TapbackActions.tapbackFailure(code, reactProc.lastErr))
+    }
+  }
+
+  // Local desktop-toast preferences outlive either view, just like tapbacks.
+  // FileView only watches: the TypeScript helper owns parsing and private writes.
+  property var toastAllowlist: []
+  property bool toastAllowlistLoaded: false
+  property string toastAllowlistAction: ""
+  readonly property bool toastAllowlistBusy: toastAllowlistAction !== ""
+  property bool toastAllowlistReloadPending: false
+  readonly property bool toastAllowlistReady:
+    toastAllowlistLoaded && !toastAllowlistBusy && !toastAllowlistReloadPending
+  property string toastAllowlistLoadError: ""
+  property string toastAllowlistSaveError: ""
+  readonly property string toastAllowlistError: toastAllowlistSaveError || toastAllowlistLoadError
+
+  function reloadToastAllowlist() {
+    if (!root.leader) return
+    root.toastAllowlistReloadPending = true
+    toastAllowlistRefresh.restart()
+  }
+  function runToastAllowlist(request) {
+    if (root.toastAllowlistBusy || toastAllowlistProc.running) return false
+    root.toastAllowlistAction = request.action
+    toastAllowlistProc.reply = ""
+    toastAllowlistProc.lastErr = ""
+    toastAllowlistProc.sawExit = false
+    toastAllowlistProc.stdinEnabled = true
+    toastAllowlistProc.running = true
+    toastAllowlistProc.write(JSON.stringify(request))
+    toastAllowlistProc.stdinEnabled = false
+    return true
+  }
+  function setToastAllowed(chat, handle, enabled) {
+    if (!root.leader || !root.toastAllowlistReady) return false
+    root.toastAllowlistSaveError = ""
+    return root.runToastAllowlist({ action: "set", chat: String(chat), handle: String(handle), enabled: enabled })
+  }
+  function finishToastAllowlist(code) {
+    var action = root.toastAllowlistAction
+    if (action === "") return
+    var reply = null
+    try { reply = JSON.parse(toastAllowlistProc.reply) } catch (e) {}
+    if (code === 0 && reply && reply.ok === true && Array.isArray(reply.allow)) {
+      root.toastAllowlist = reply.allow
+      root.toastAllowlistLoaded = true
+      root.toastAllowlistLoadError = ""
+      if (action === "set") root.toastAllowlistSaveError = ""
+    } else {
+      var error = reply && typeof reply.error === "string" ? reply.error
+        : code < 0 ? "Could not start the Blip notifications helper."
+        : toastAllowlistProc.lastErr || (code === 0 ? "The Blip notifications helper returned an invalid reply."
+          : "The Blip notifications helper failed (exit " + code + ").")
+      if (action === "set") root.toastAllowlistSaveError = error
+      else { root.toastAllowlistLoadError = error; root.toastAllowlistLoaded = false }
+    }
+    root.toastAllowlistAction = ""
+    if (root.toastAllowlistReloadPending) toastAllowlistRefresh.restart()
+  }
+  Timer {
+    id: toastAllowlistRefresh
+    interval: 0
+    onTriggered: {
+      if (!root.leader || root.toastAllowlistBusy || !root.toastAllowlistReloadPending) return
+      root.toastAllowlistReloadPending = false
+      root.runToastAllowlist({ action: "load" })
+    }
+  }
+  FileView {
+    id: toastAllowlistFile
+    path: root.leader ? root.home + "/.config/blip/allowlist.json" : ""
+    watchChanges: root.leader
+    printErrors: false
+    onFileChanged: { reload(); root.reloadToastAllowlist() }
+    Component.onCompleted: root.reloadToastAllowlist()
+  }
+  onLeaderChanged: if (root.leader) root.reloadToastAllowlist()
+  Process {
+    id: toastAllowlistProc
+    command: ["bun", root.toastAllowlistScript]
+    property string reply: ""
+    property string lastErr: ""
+    property bool sawExit: false
+    stdout: StdioCollector { onStreamFinished: toastAllowlistProc.reply = text }
+    stderr: StdioCollector { onStreamFinished: toastAllowlistProc.lastErr = text.trim() }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!toastAllowlistProc.sawExit && !toastAllowlistProc.running && root.toastAllowlistBusy)
+        root.finishToastAllowlist(-1)
+    })
+    onExited: function(code, status) {
+      toastAllowlistProc.sawExit = true
+      // Settle after both output collectors have delivered their streams.
+      Qt.callLater(function() { root.finishToastAllowlist(code) })
     }
   }
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Allow desktop notifications from a conversation's menu.** Right-click a
+  person's row or pinned avatar, or use the thread header's ⋯ button, to allow
+  or stop Blip toasts without editing JSON. Changes use the existing allowlist,
+  preserve unrelated entries, and leave messages and unread counts alone.
+  Invalid configuration is reported rather than overwritten. Messages'
+  **Hide Alerts** remains a separate Mac-side action.
+
 - **Security-code toasts now fire for alphanumeric sender IDs (#143, thanks
   @edmooredop).** Outside the US most 2FA text arrives from a name rather than
   a number (`msverify`, `Google`, `HSBC`, `NatWest`). Blip read those as group

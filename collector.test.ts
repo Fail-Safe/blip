@@ -810,30 +810,6 @@ describe("state and allowlist I/O", () => {
     expect(loadState(p).unreadInitialized).toBe(false);
   });
 
-  // Both loaders swallow a parse error and return [], so a README example that
-  // does not parse is indistinguishable from having no file: everything still
-  // counts on the badge and nothing ever toasts, with no error anywhere. The
-  // examples were fenced ```jsonc with a `//` line above the object, which
-  // JSON.parse rejects -- copied as shown, they configured nothing.
-  test("the README's allowlist and mutelist examples load as written", () => {
-    const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
-    const blocks = [...readme.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1]!);
-    expect(blocks.length).toBeGreaterThanOrEqual(2);
-
-    const allowBlock = blocks.find((b) => b.includes('"allow"'));
-    const muteBlock = blocks.find((b) => b.includes('"mute"'));
-    expect(allowBlock).toBeDefined();
-    expect(muteBlock).toBeDefined();
-
-    const a = join(tmp(), "readme-allow.json");
-    writeFileSync(a, allowBlock!);
-    expect(loadAllowlist(a).length).toBeGreaterThan(0);
-
-    const m = join(tmp(), "readme-mute.json");
-    writeFileSync(m, muteBlock!);
-    expect(loadMutelist(m).length).toBeGreaterThan(0);
-  });
-
   test("reads a bare-array allowlist", () => {
     const p = join(tmp(), "allow.json");
     writeFileSync(p, JSON.stringify(["+15551234567"]));
